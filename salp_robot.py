@@ -242,10 +242,12 @@ class SalpRobotEnv(gym.Env):
         # Calculate thrust based on water volume and expansion rate
         thrust_magnitude = self.max_thrust_force * self.water_volume * 0.4
         
-        # Thrust direction is opposite to nozzle direction (Newton's 3rd law)
-        # Nozzle points backward from body, thrust pushes body forward
-        nozzle_world_angle = self.robot_angle + math.pi + self.nozzle_angle
-        thrust_angle = nozzle_world_angle + math.pi  # Opposite direction
+        # CORRECT thrust direction calculation:
+        # When nozzle_angle = 0 (straight back): robot should move forward (robot_angle)
+        # When nozzle points left: robot should move right
+        # When nozzle points right: robot should move left
+        
+        thrust_angle = self.robot_angle - self.nozzle_angle
         
         thrust_x = math.cos(thrust_angle) * thrust_magnitude
         thrust_y = math.sin(thrust_angle) * thrust_magnitude
@@ -254,28 +256,23 @@ class SalpRobotEnv(gym.Env):
         self.robot_velocity[0] += thrust_x * 0.012
         self.robot_velocity[1] += thrust_y * 0.012
         
-        # Enhanced propulsion moment physics
-        # The nozzle creates both direct torque and moment arm effects
+        # Enhanced but corrected torque physics
+        # When nozzle points right (+), robot should turn left (-)
+        # When nozzle points left (-), robot should turn right (+)
         
-        # 1. Direct torque from nozzle angle (steering effect)
-        # Positive nozzle angle (right) should create positive rotation (counterclockwise)
-        direct_torque = self.nozzle_angle * thrust_magnitude * 0.0001
+        # 1. Primary steering torque (opposite to nozzle angle)
+        primary_torque = -self.nozzle_angle * thrust_magnitude * 0.0002
         
-        # 2. Moment arm effect - thrust applied at rear of body creates rotation
-        # Distance from center of mass to nozzle (rear of body)
-        moment_arm = max(self.ellipse_a, self.ellipse_b) * 0.7  # Nozzle is at 70% of body radius from center
+        # 2. Moment arm effect - thrust applied at rear creates rotation
+        moment_arm = max(self.ellipse_a, self.ellipse_b) * 0.7
+        thrust_perpendicular = thrust_magnitude * math.sin(-self.nozzle_angle)  # Corrected sign
+        moment_torque = thrust_perpendicular * moment_arm * 0.00005
         
-        # Calculate perpendicular component of thrust that creates rotation
-        # This is the component of thrust perpendicular to the line from COM to nozzle
-        thrust_perpendicular = thrust_magnitude * math.sin(self.nozzle_angle)
-        moment_torque = thrust_perpendicular * moment_arm * 0.00008
+        # 3. Body shape effect during morphing
+        shape_torque = -self.nozzle_angle * thrust_magnitude * self.water_volume * 0.00003
         
-        # 3. Body shape effect - asymmetric thrust creates additional rotation
-        # When nozzle is angled, the effective thrust point shifts
-        shape_torque = self.nozzle_angle * thrust_magnitude * self.water_volume * 0.00005
-        
-        # Combine all torque effects
-        total_torque = direct_torque + moment_torque + shape_torque
+        # Combine torque effects
+        total_torque = primary_torque + moment_torque + shape_torque
         self.robot_angular_velocity += total_torque
         
         # 4. Thrust vectoring effect - angled nozzle creates side force
@@ -458,23 +455,45 @@ class SalpRobotEnv(gym.Env):
         pygame.draw.line(self.screen, (200, 200, 100), 
                         (int(back_x), int(back_y)), (int(nozzle_end_x), int(nozzle_end_y)), 4)
         
-        # Draw water jet during exhale
+        # Draw water jet during exhale with curved trajectory
         if self.breathing_phase == "exhaling":
-            # Water jet particles
-            for i in range(5):
-                particle_distance = nozzle_length + 8 + i * 6
-                particle_x = back_x + math.cos(nozzle_world_angle) * particle_distance
-                particle_y = back_y + math.sin(nozzle_world_angle) * particle_distance
+            # Enhanced water jet particles with curved flow
+            num_particles = 8
+            for i in range(num_particles):
+                # Base distance from nozzle
+                base_distance = nozzle_length + 5 + i * 4
                 
-                # Add some spread to the jet
-                spread_angle = nozzle_world_angle + (i - 2) * 0.1
-                particle_x = back_x + math.cos(spread_angle) * particle_distance
-                particle_y = back_y + math.sin(spread_angle) * particle_distance
+                # Curve effect: water flow curves due to nozzle angle and water dynamics
+                curve_factor = abs(self.nozzle_angle) * 0.5  # More curve with larger nozzle angles
+                curve_offset = curve_factor * (i * 0.3)  # Curve increases with distance
                 
-                alpha = max(0, 255 - i * 40)
-                particle_color = (100, 150, 255)  # Blue water particles
+                # Apply curve perpendicular to nozzle direction
+                perpendicular_angle = nozzle_world_angle + math.pi/2
+                if self.nozzle_angle > 0:  # Nozzle right, water curves right
+                    curve_offset = -curve_offset
+                
+                # Calculate curved particle position
+                straight_x = back_x + math.cos(nozzle_world_angle) * base_distance
+                straight_y = back_y + math.sin(nozzle_world_angle) * base_distance
+                
+                curved_x = straight_x + math.cos(perpendicular_angle) * curve_offset
+                curved_y = straight_y + math.sin(perpendicular_angle) * curve_offset
+                
+                # Add natural spread to the jet
+                spread_variation = (i - num_particles/2) * 0.08
+                spread_x = curved_x + math.cos(perpendicular_angle) * spread_variation * 3
+                spread_y = curved_y + math.sin(perpendicular_angle) * spread_variation * 3
+                
+                # Particle properties
+                alpha = max(0, 255 - i * 25)
+                particle_size = max(1, 5 - i)
+                
+                # Color varies with distance (darker blue further out)
+                blue_intensity = max(100, 200 - i * 15)
+                particle_color = (80, 120, blue_intensity)
+                
                 pygame.draw.circle(self.screen, particle_color, 
-                                 (int(particle_x), int(particle_y)), max(1, 4 - i))
+                                 (int(spread_x), int(spread_y)), particle_size)
         
         # Draw velocity vector
         speed = math.sqrt(self.robot_velocity[0]**2 + self.robot_velocity[1]**2)
@@ -547,13 +566,12 @@ def main():
         # Inhale control (hold space)
         inhale_control = 1.0 if keys[pygame.K_SPACE] else 0.0
         
-        # Nozzle steering (using arrow keys)
-        if keys[pygame.K_LEFT]:  # Left arrow key
-            nozzle_direction = max(-1.0, nozzle_direction - 0.03)
-        elif keys[pygame.K_RIGHT]:  # Right arrow key
+        # Nozzle steering (using arrow keys) - Fixed direction
+        if keys[pygame.K_LEFT]:  # Left arrow key - steer nozzle left
             nozzle_direction = min(1.0, nozzle_direction + 0.03)
-        else:
-            nozzle_direction *= 0.9  # Return to center
+        elif keys[pygame.K_RIGHT]:  # Right arrow key - steer nozzle right
+            nozzle_direction = max(-1.0, nozzle_direction - 0.03)
+        # Removed auto-centering - nozzle maintains position when no input
         
         # Apply action
         action = np.array([inhale_control, nozzle_direction])
