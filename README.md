@@ -8,19 +8,13 @@ This repository contains implementations of bio-inspired underwater robots that 
 
 ## Features
 
-### Realistic SALP Robot (`realistic_salp_robot.py`)
+### SALP Robot (`salp_robot.py`)
 - **Slow, realistic breathing cycles** (2-3 seconds per phase)
 - **Hold-to-inhale control scheme** for natural underwater movement
 - **Steerable rear nozzle** (not body rotation) for directional control
 - **Morphing body dynamics** with ellipsoid-to-sphere transitions
 - **Realistic underwater physics** with momentum and drag
 - **Enhanced propulsion moment physics** for realistic turning behavior
-
-### Simple Squid Robot (`squid_robot.py`)
-- Basic jet propulsion mechanics
-- Water management system
-- Steerable nozzle control
-- Pulsing jellyfish-like motion
 
 ## Research Background
 
@@ -40,9 +34,9 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Run Realistic SALP Robot Demo
+### Run SALP Robot Demo
 ```bash
-python realistic_salp_robot.py
+python salp_robot.py
 ```
 
 **Controls:**
@@ -51,26 +45,16 @@ python realistic_salp_robot.py
 - **←/→ Arrow Keys**: Steer rear nozzle left/right
 - **ESC**: Quit
 
-### Run Simple Squid Robot Demo
-```bash
-python squid_robot.py
-```
-
-**Controls:**
-- **W/S**: Thrust power
-- **A/D**: Nozzle steering
-- **ESC**: Quit
-
 ## Gymnasium Environment
 
-Both robots are implemented as Gymnasium environments and can be used for reinforcement learning research:
+The SALP robot is implemented as a Gymnasium environment and can be used for reinforcement learning research:
 
 ```python
 import gymnasium as gym
-from realistic_salp_robot import RealisticSalpRobotEnv
+from salp_robot import SalpRobotEnv
 
 # Create environment
-env = RealisticSalpRobotEnv(render_mode="human")
+env = SalpRobotEnv(render_mode="human")
 observation, info = env.reset()
 
 # Run simulation
@@ -87,13 +71,9 @@ env.close()
 
 ## Action and Observation Spaces
 
-### Realistic SALP Robot
+### SALP Robot
 - **Action Space**: `[inhale_control (0/1), nozzle_direction (-1 to 1)]`
 - **Observation Space**: `[pos_x, pos_y, vel_x, vel_y, body_angle, angular_vel, body_size, breathing_phase, water_volume, nozzle_angle]`
-
-### Simple Squid Robot
-- **Action Space**: `[thrust_power (0-1), nozzle_angle (-1 to 1)]`
-- **Observation Space**: `[pos_x, pos_y, vel_x, vel_y, angle, angular_vel, water_level, nozzle_angle]`
 
 ## Key Implementation Features
 

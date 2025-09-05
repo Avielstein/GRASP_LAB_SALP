@@ -99,15 +99,16 @@
 ## Implementation Notes
 
 ### Current Gymnasium Environment
-- **Existing**: `squid_robot.py` - basic jet propulsion simulation
-- **Enhancement Target**: Add SALP-inspired volume-based morphing
-- **Key Addition**: Body size changes during propulsion cycles
+- **Implementation**: `salp_robot.py` - SALP-inspired robot with realistic breathing cycles
+- **Features**: Volume-based morphing, steerable nozzle, realistic underwater physics
+- **Key Components**: Body size changes during propulsion cycles, hold-to-inhale controls
 
-### Simulation Enhancements
-- Replace fixed-size robot with morphing ellipsoid
-- Add expansion/contraction animation
-- Implement volume-based thrust calculation
-- Optional: Multi-agent chain formation
+### Simulation Features
+- Morphing ellipsoid body with realistic breathing cycles
+- Expansion/contraction animation with proper timing
+- Volume-based thrust calculation
+- Enhanced propulsion moment physics
+- Optional: Multi-agent chain formation capability
 
 ### Physics Considerations
 - **Thrust Calculation**: Based on volume change rate

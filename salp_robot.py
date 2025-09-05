@@ -12,9 +12,9 @@ import math
 from typing import Tuple, Optional, Dict, Any
 
 
-class RealisticSalpRobotEnv(gym.Env):
+class SalpRobotEnv(gym.Env):
     """
-    Realistic SALP-inspired robot environment with steerable nozzle.
+    SALP-inspired robot environment with steerable nozzle.
     
     Features:
     - Slow, realistic breathing cycles (2-3 seconds per phase)
@@ -527,7 +527,7 @@ def main():
     print("- ESC: Quit")
     
     pygame.init()
-    env = RealisticSalpRobotEnv(render_mode="human")
+    env = SalpRobotEnv(render_mode="human")
     observation, info = env.reset()
     
     running = True
