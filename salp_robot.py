@@ -117,11 +117,21 @@ class SalpRobotEnv(gym.Env):
         return self._get_observation(), {}
     
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        inhale_control = float(action[0])  # 0 to 1
-        nozzle_direction = float(action[1])  # -1 to 1
+        # Check if we're in forced breathing mode (passed from environment)
+        forced_breathing = getattr(self, 'forced_breathing', False)
+        
+        if forced_breathing:
+            # FORCED BREATHING MODE: Only nozzle control
+            nozzle_direction = float(action[0])  # -1 to 1 (single action)
+            # Force automatic breathing cycle
+            self.is_inhaling = self._get_forced_breathing_state()
+        else:
+            # NORMAL MODE: Full control
+            inhale_control = float(action[0])  # 0 to 1
+            nozzle_direction = float(action[1])  # -1 to 1
+            self.is_inhaling = inhale_control > 0.5
         
         # Update control inputs
-        self.is_inhaling = inhale_control > 0.5
         self.target_nozzle_angle = nozzle_direction * self.max_nozzle_angle
         
         # Update nozzle position (smooth movement)
@@ -144,6 +154,17 @@ class SalpRobotEnv(gym.Env):
         info = self._get_info()
         
         return observation, reward, done, truncated, info
+    
+    def _get_forced_breathing_state(self) -> bool:
+        """Determine breathing state for forced breathing mode."""
+        # Create automatic breathing cycle based on timer
+        cycle_length = self.inhale_duration + self.exhale_duration + self.rest_duration
+        cycle_position = self.breathing_timer % cycle_length
+        
+        if cycle_position < self.inhale_duration:
+            return True  # Inhaling
+        else:
+            return False  # Exhaling or resting
     
     def _update_nozzle(self):
         """Update nozzle angle smoothly."""
@@ -387,12 +408,33 @@ class SalpRobotEnv(gym.Env):
             return
         
         if self.screen is None:
-            pygame.init()
-            if self.render_mode == "human":
-                self.screen = pygame.display.set_mode((self.width, self.height))
-                pygame.display.set_caption("Realistic SALP Robot - Steerable Nozzle & Breathing")
-            else:
-                self.screen = pygame.Surface((self.width, self.height))
+            # Initialize pygame with proper error handling
+            try:
+                pygame.init()
+                pygame.display.init()
+                
+                # Ensure we have valid dimensions
+                if self.width <= 0 or self.height <= 0:
+                    self.width = 800
+                    self.height = 600
+                
+                if self.render_mode == "human":
+                    # Try to create display with error handling
+                    try:
+                        self.screen = pygame.display.set_mode((int(self.width), int(self.height)))
+                        pygame.display.set_caption("SALP Robot - Snake Game")
+                    except pygame.error as e:
+                        print(f"Pygame display error: {e}")
+                        # Fallback to smaller window
+                        self.width, self.height = 640, 480
+                        self.screen = pygame.display.set_mode((self.width, self.height))
+                        pygame.display.set_caption("SALP Robot - Snake Game")
+                else:
+                    self.screen = pygame.Surface((int(self.width), int(self.height)))
+            except Exception as e:
+                print(f"Pygame initialization error: {e}")
+                # Create a minimal surface as fallback
+                self.screen = pygame.Surface((800, 600))
         
         if self.clock is None:
             self.clock = pygame.time.Clock()
