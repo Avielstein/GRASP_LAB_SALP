@@ -165,12 +165,12 @@ def get_sac_snake_config() -> ExperimentConfig:
     )
     
     training_config = TrainingConfig(
-        max_episodes=1000,  # Reduced for quicker training
-        max_steps_per_episode=2000,  # Increased episode length
-        eval_frequency=50,  # More frequent evaluation
-        save_frequency=100,  # More frequent saving
+        max_episodes=2000,  # Increased for overnight training
+        max_steps_per_episode=5000,  # Long episodes for extended learning
+        eval_frequency=25,  # More frequent evaluation for better tracking
+        save_frequency=50,  # Save models more frequently
         start_training_after=500,  # Start training sooner
-        experiment_name="salp_snake_sac_optimized"
+        experiment_name="salp_snake_sac_overnight"
     )
     
     return ExperimentConfig(env_config, agent_config, training_config)

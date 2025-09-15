@@ -1,0 +1,65 @@
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+🌙 Overnight Trainer initialized for experiment: salp_snake_sac_overnight
+Environment: salp_snake
+Agent: sac_salp
+Device: cpu
+Training for 2000 episodes
+Episode length: 5000 steps
+💤 Running overnight training (no visual display)...
+🚀 Starting overnight training at 2025-09-15 00:07:04
+🏆 NEW BEST MODEL! Episode 0, Score: 10.00
+Episode 0/2000, Score: 200.00, Food: 2, Steps: 2535, Time: 0.0h
+🏆 NEW BEST MODEL! Episode 25, Score: 80.00
+
+🛑 Received signal 15. Saving progress and shutting down...
+
+🌅 OVERNIGHT TRAINING COMPLETED!
+=====================================
+
+Experiment: salp_snake_sac_overnight
+Training Time: 8.4 hours
+Episodes Completed: 37/2000
+Total Steps: 71785
+Best Evaluation Score: 80.00
+
+Models Saved:
+- best_model.pth (best performing model)
+- final_model.pth (final model state)
+- Periodic saves every 50 episodes
+
+Logs Saved:
+- Training metrics in logs/salp_snake_sac_overnight/
+- Episode data and loss curves available
+
+To test the trained model, run:
+python test_trained_model.py
+
+Training completed at: 2025-09-15 08:28:56
+
+
+🌅 OVERNIGHT TRAINING COMPLETED!
+=====================================
+
+Experiment: salp_snake_sac_overnight
+Training Time: 8.4 hours
+Episodes Completed: 37/2000
+Total Steps: 71785
+Best Evaluation Score: 80.00
+
+Models Saved:
+- best_model.pth (best performing model)
+- final_model.pth (final model state)
+- Periodic saves every 50 episodes
+
+Logs Saved:
+- Training metrics in logs/salp_snake_sac_overnight/
+- Episode data and loss curves available
+
+To test the trained model, run:
+python test_trained_model.py
+
+Training completed at: 2025-09-15 08:28:56
+

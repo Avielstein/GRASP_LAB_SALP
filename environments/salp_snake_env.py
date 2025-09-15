@@ -254,39 +254,16 @@ class SalpSnakeEnv(SalpRobotEnv):
                 return
     
     def _calculate_snake_reward(self, base_reward: float, food_collected: bool, collision: bool) -> float:
-        """Calculate reward focused on basic breathing locomotion."""
+        """Calculate reward focused only on food collection."""
         reward = 0.0
         
-        # PHASE 1: Focus on breathing locomotion only
-        # Reward proper breathing cycles
-        if self.breathing_phase == "inhaling" and self.is_inhaling:
-            reward += 1.0  # Reward for proper inhaling
-        elif self.breathing_phase == "exhaling" and not self.is_inhaling:
-            reward += 3.0  # Higher reward for exhaling (creates movement)
+        # ONLY food collection reward - no other rewards
+        if food_collected:
+            reward += 100.0  # Large reward for successful food collection
         
-        # Reward for completing breathing cycles
-        if self.breathing_phase == "rest" and self.water_volume == 0.0:
-            reward += 5.0  # Completed full inhale-exhale cycle
-        
-        # Reward movement (any movement is good)
-        speed = math.sqrt(self.robot_velocity[0]**2 + self.robot_velocity[1]**2)
-        if speed > 0.1:
-            reward += speed * 2.0  # Reward proportional to speed
-        
-        # Small exploration bonus for visiting different areas
-        center_distance = math.sqrt((self.robot_pos[0] - self.width/2)**2 + (self.robot_pos[1] - self.height/2)**2)
-        if center_distance > 100:  # Moved away from center
-            reward += 1.0
-        
-        # Collision penalty (but smaller)
+        # Collision penalty to prevent wall hitting
         if collision:
-            reward -= 10.0  # Reduced penalty
-        
-        # Small time penalty to encourage activity
-        reward -= 0.02  # Very small time penalty
-        
-        # TEMPORARILY DISABLED: Food collection rewards
-        # We'll add these back once basic locomotion is learned
+            reward -= 50.0  # Penalty for collision
         
         return reward
     
