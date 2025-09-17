@@ -1,35 +1,34 @@
 """
-Live training system with visual feedback for SALP RL experiments.
-Shows the agent learning in real-time with periodic visual episodes.
+Overnight training script for SALP RL experiments.
+Runs training without visual display to save resources.
 """
 
 import os
 import time
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import torch
-import threading
-import queue
+import signal
+import sys
 
-from config.base_config import ExperimentConfig
-from core.base_agent import BaseAgent, ReplayBuffer, Logger
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config.base_config import get_sac_snake_config
+from core.base_agent import ReplayBuffer, Logger
 from agents.sac_agent import SACAgent
 from environments.salp_snake_env import SalpSnakeEnv
 
 
-class LiveTrainer:
-    """Trainer with live visual feedback during training."""
+class OvernightTrainer:
+    """Trainer optimized for overnight training without visual display."""
     
-    def __init__(self, config: ExperimentConfig, visual_frequency: int = 10):
+    def __init__(self, config):
         self.config = config
-        self.visual_frequency = visual_frequency  # Show visual episode every N episodes
         
-        # Create training environment (no rendering)
+        # Create environments (no rendering for efficiency)
         self.env = self._create_environment(render_mode=None)
         self.eval_env = self._create_environment(render_mode=None)
-        
-        # Create visual environment (with rendering)
-        self.visual_env = self._create_environment(render_mode="human")
         
         # Create agent
         self.agent = self._create_agent()
@@ -49,16 +48,29 @@ class LiveTrainer:
         self.episode = 0
         self.total_steps = 0
         self.best_eval_score = -float('inf')
+        self.training_start_time = time.time()
         
         # Create directories
         self.model_dir = os.path.join(config.training.model_dir, config.training.experiment_name)
         os.makedirs(self.model_dir, exist_ok=True)
         
-        print(f"Live Trainer initialized for experiment: {config.training.experiment_name}")
+        # Setup graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        
+        print(f"🌙 Overnight Trainer initialized for experiment: {config.training.experiment_name}")
         print(f"Environment: {config.environment.name}")
         print(f"Agent: {config.agent.name}")
         print(f"Device: {self.agent.device}")
-        print(f"Visual episodes every {visual_frequency} episodes")
+        print(f"Training for {config.training.max_episodes} episodes")
+        print(f"Episode length: {config.training.max_steps_per_episode} steps")
+        print("💤 Running overnight training (no visual display)...")
+    
+    def _signal_handler(self, signum, frame):
+        """Handle graceful shutdown."""
+        print(f"\n🛑 Received signal {signum}. Saving progress and shutting down...")
+        self._save_final_results()
+        sys.exit(0)
     
     def _create_environment(self, render_mode=None):
         """Create environment based on configuration."""
@@ -92,72 +104,60 @@ class LiveTrainer:
             raise ValueError(f"Unknown agent type: {agent_type}")
     
     def train(self):
-        """Main training loop with live visualization."""
-        print(f"Starting live training for {self.config.training.max_episodes} episodes...")
-        print("Visual episodes will show the agent's current performance!")
+        """Main training loop."""
+        print(f"🚀 Starting overnight training at {time.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        start_time = time.time()
-        
-        for episode in range(self.config.training.max_episodes):
-            self.episode = episode
-            
-            # Decide if this should be a visual episode
-            is_visual_episode = (episode % self.visual_frequency == 0 and episode > 0)
-            
-            if is_visual_episode:
-                print(f"\n🎬 VISUAL EPISODE {episode} - Watch the agent perform!")
-                episode_metrics = self._run_visual_episode()
-                print(f"Visual episode completed: Score: {episode_metrics['score']:.2f}, "
-                      f"Food: {episode_metrics['food_collected']}")
-            else:
-                # Run normal training episode
+        try:
+            for episode in range(self.config.training.max_episodes):
+                self.episode = episode
+                
+                # Run training episode
                 episode_metrics = self._run_episode()
-            
-            # Log episode metrics
-            self.logger.log_episode(episode, episode_metrics)
-            
-            # Update agent episode count
-            self.agent.episode_count = episode
-            
-            # Evaluation
-            if episode % self.config.training.eval_frequency == 0:
-                eval_metrics = self._evaluate()
                 
-                # Log evaluation metrics
-                for key, value in eval_metrics.items():
-                    self.logger.log_scalar(f"eval_{key}", value, episode)
+                # Log episode metrics
+                self.logger.log_episode(episode, episode_metrics)
                 
-                # Save best model
-                if eval_metrics['mean_score'] > self.best_eval_score:
-                    self.best_eval_score = eval_metrics['mean_score']
-                    self._save_model("best_model.pth")
-                    print(f"🏆 New best model saved! Score: {self.best_eval_score:.2f}")
-            
-            # Save model periodically
-            if episode % self.config.training.save_frequency == 0:
-                self._save_model(f"model_episode_{episode}.pth")
-            
-            # Print progress
-            if episode % 25 == 0 or is_visual_episode:
-                elapsed_time = time.time() - start_time
-                print(f"Episode {episode}/{self.config.training.max_episodes}, "
-                      f"Score: {episode_metrics['score']:.2f}, "
-                      f"Food: {episode_metrics['food_collected']}, "
-                      f"Steps: {episode_metrics['steps']}, "
-                      f"Time: {elapsed_time:.1f}s")
+                # Update agent episode count
+                self.agent.episode_count = episode
+                
+                # Evaluation
+                if episode % self.config.training.eval_frequency == 0:
+                    eval_metrics = self._evaluate()
+                    
+                    # Log evaluation metrics
+                    for key, value in eval_metrics.items():
+                        self.logger.log_scalar(f"eval_{key}", value, episode)
+                    
+                    # Check for new best model
+                    if eval_metrics['mean_score'] > self.best_eval_score:
+                        self.best_eval_score = eval_metrics['mean_score']
+                        self._save_model("best_model.pth")
+                        print(f"🏆 NEW BEST MODEL! Episode {episode}, Score: {self.best_eval_score:.2f}")
+                
+                # Save model periodically
+                if episode % self.config.training.save_frequency == 0:
+                    self._save_model(f"model_episode_{episode}.pth")
+                
+                # Print progress every 50 episodes
+                if episode % 50 == 0:
+                    elapsed_time = time.time() - self.training_start_time
+                    hours = elapsed_time / 3600
+                    print(f"Episode {episode}/{self.config.training.max_episodes}, "
+                          f"Score: {episode_metrics['score']:.2f}, "
+                          f"Food: {episode_metrics['food_collected']}, "
+                          f"Steps: {episode_metrics['steps']}, "
+                          f"Time: {hours:.1f}h")
         
-        # Final save
-        self._save_model("final_model.pth")
-        self.logger.save_metrics()
+        except Exception as e:
+            print(f"❌ Training error: {e}")
+            import traceback
+            traceback.print_exc()
         
-        print("🎉 Training completed!")
-        print(f"Best evaluation score: {self.best_eval_score:.2f}")
-        
-        # Close visual environment
-        self.visual_env.close()
+        finally:
+            self._save_final_results()
     
     def _run_episode(self) -> Dict[str, float]:
-        """Run a single training episode (no rendering)."""
+        """Run a single training episode."""
         obs, _ = self.env.reset()
         episode_reward = 0
         episode_steps = 0
@@ -212,46 +212,8 @@ class LiveTrainer:
         
         return episode_metrics
     
-    def _run_visual_episode(self) -> Dict[str, float]:
-        """Run a visual episode showing the agent's current performance."""
-        obs, _ = self.visual_env.reset()
-        episode_reward = 0
-        episode_steps = 0
-        
-        done = False
-        truncated = False
-        
-        print("🎮 Visual episode starting - watch the SALP learn!")
-        
-        while not done and not truncated and episode_steps < self.config.training.max_steps_per_episode:
-            # Render environment
-            self.visual_env.render()
-            
-            # Select action (deterministic for cleaner visualization)
-            action = self.agent.select_action(obs, deterministic=True)
-            
-            # Take step
-            obs, reward, done, truncated, info = self.visual_env.step(action)
-            
-            episode_reward += reward
-            episode_steps += 1
-            
-            # Small delay for better visualization
-            time.sleep(0.02)  # 50 FPS
-        
-        # Calculate episode metrics
-        episode_metrics = {
-            'score': episode_reward,
-            'steps': episode_steps,
-            'food_collected': info.get('food_collected', 0),
-            'collision': info.get('collision', False),
-            'visual_episode': True
-        }
-        
-        return episode_metrics
-    
-    def _evaluate(self, num_episodes: int = 3) -> Dict[str, float]:
-        """Evaluate agent performance (reduced episodes for faster training)."""
+    def _evaluate(self, num_episodes: int = 5) -> Dict[str, float]:
+        """Evaluate agent performance."""
         scores = []
         food_collected_list = []
         steps_list = []
@@ -300,18 +262,57 @@ class LiveTrainer:
         
         training_filepath = filepath.replace('.pth', '_training_state.pth')
         torch.save(training_state, training_filepath)
+    
+    def _save_final_results(self):
+        """Save final results and create summary."""
+        # Final save
+        self._save_model("final_model.pth")
+        self.logger.save_metrics()
+        
+        # Create summary
+        total_time = time.time() - self.training_start_time
+        hours = total_time / 3600
+        
+        summary = f"""
+🌅 OVERNIGHT TRAINING COMPLETED!
+=====================================
+
+Experiment: {self.config.training.experiment_name}
+Training Time: {hours:.1f} hours
+Episodes Completed: {self.episode + 1}/{self.config.training.max_episodes}
+Total Steps: {self.total_steps}
+Best Evaluation Score: {self.best_eval_score:.2f}
+
+Models Saved:
+- best_model.pth (best performing model)
+- final_model.pth (final model state)
+- Periodic saves every {self.config.training.save_frequency} episodes
+
+Logs Saved:
+- Training metrics in logs/{self.config.training.experiment_name}/
+- Episode data and loss curves available
+
+To test the trained model, run:
+python test_trained_model.py
+
+Training completed at: {time.strftime('%Y-%m-%d %H:%M:%S')}
+"""
+        
+        # Save summary to file
+        summary_path = os.path.join(self.model_dir, "training_summary.txt")
+        with open(summary_path, 'w') as f:
+            f.write(summary)
+        
+        print(summary)
 
 
 def main():
-    """Demo live training script."""
-    from config.base_config import get_sac_snake_config
-    
+    """Run overnight training."""
     # Get configuration
     config = get_sac_snake_config()
-    config.training.max_episodes = 200  # Shorter for demo
     
-    # Create live trainer
-    trainer = LiveTrainer(config, visual_frequency=10)
+    # Create trainer
+    trainer = OvernightTrainer(config)
     
     # Start training
     trainer.train()

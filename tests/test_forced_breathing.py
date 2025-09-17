@@ -3,6 +3,12 @@ Test script for forced breathing mode implementation.
 """
 
 import numpy as np
+import sys
+import os
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from environments.salp_snake_env import SalpSnakeEnv
 
 def test_forced_breathing():

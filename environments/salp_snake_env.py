@@ -11,7 +11,13 @@ import math
 from typing import Tuple, Optional, Dict, Any, List
 import random
 
-from salp_robot import SalpRobotEnv
+import sys
+import os
+
+# Add project root to path to access scripts
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from scripts.salp_robot import SalpRobotEnv
 
 
 class SalpSnakeEnv(SalpRobotEnv):

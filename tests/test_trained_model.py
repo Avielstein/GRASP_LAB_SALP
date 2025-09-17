@@ -9,6 +9,12 @@ import numpy as np
 import torch
 from typing import Dict, Any
 
+import sys
+import os
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config.base_config import get_sac_snake_config
 from agents.sac_agent import SACAgent
 from environments.salp_snake_env import SalpSnakeEnv

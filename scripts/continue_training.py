@@ -5,7 +5,12 @@ This script loads the best model from previous training and continues with visua
 """
 
 import os
+import sys
 import torch
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config.base_config import get_sac_snake_config
 from training.continuous_trainer import ContinuousTrainer
 
