@@ -44,14 +44,18 @@ class Trainer:
         self.total_steps = 0
         self.best_eval_score = -float('inf')
         
-        # Create directories
-        self.model_dir = os.path.join(config.training.model_dir, config.training.experiment_name)
+        # Create directories with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_name = f"{config.training.experiment_name}_{timestamp}"
+        self.model_dir = os.path.join(config.training.model_dir, self.run_name)
         os.makedirs(self.model_dir, exist_ok=True)
         
-        print(f"Trainer initialized for experiment: {config.training.experiment_name}")
+        print(f"Trainer initialized for run: {self.run_name}")
         print(f"Environment: {config.environment.name}")
         print(f"Agent: {config.agent.name}")
         print(f"Device: {self.agent.device}")
+        print(f"Models will be saved to: {self.model_dir}")
     
     def _create_environment(self):
         """Create environment based on configuration."""
@@ -110,15 +114,11 @@ class Trainer:
                 for key, value in eval_metrics.items():
                     self.logger.log_scalar(f"eval_{key}", value, episode)
                 
-                # Save best model
+                # Save only the best model (no periodic saves)
                 if eval_metrics['mean_score'] > self.best_eval_score:
                     self.best_eval_score = eval_metrics['mean_score']
                     self._save_model("best_model.pth")
                     print(f"New best model saved! Score: {self.best_eval_score:.2f}")
-            
-            # Save model periodically
-            if episode % self.config.training.save_frequency == 0:
-                self._save_model(f"model_episode_{episode}.pth")
             
             # Print progress
             if episode % 50 == 0:

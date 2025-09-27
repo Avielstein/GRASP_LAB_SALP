@@ -50,6 +50,13 @@ class ContinuousTrainer:
         self.total_steps = 0
         self.best_eval_score = -float('inf')
         
+        # Adaptive difficulty state
+        self.recent_food_collection_rates = []
+        self.adaptive_window = 10  # Episodes to track for adaptation
+        self.current_food_count = config.environment.params['num_food_items']
+        self.min_food_count = 2
+        self.max_food_count = 12
+        
         # Visual state
         self.current_best_agent = None
         self.new_best_available = False
@@ -98,6 +105,20 @@ class ContinuousTrainer:
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
     
+    def _format_time(self, seconds):
+        """Format time in a readable way."""
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = seconds % 60
+            return f"{minutes}m {secs:.1f}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = seconds % 60
+            return f"{hours}h {minutes}m {secs:.1f}s"
+    
     def train(self):
         """Main training loop with continuous visualization."""
         print(f"Starting continuous training for {self.config.training.max_episodes} episodes...")
@@ -129,6 +150,9 @@ class ContinuousTrainer:
                 # Run training episode
                 episode_metrics = self._run_episode()
                 
+                # Update adaptive difficulty based on performance
+                self._update_adaptive_difficulty(episode_metrics)
+                
                 # Log episode metrics
                 self.logger.log_episode(episode, episode_metrics)
                 
@@ -157,13 +181,14 @@ class ContinuousTrainer:
                 if episode % self.config.training.save_frequency == 0:
                     self._save_model(f"model_episode_{episode}.pth")
                 
-                # Print progress every episode
+                # Print progress every episode with better time formatting
                 elapsed_time = time.time() - start_time
+                time_str = self._format_time(elapsed_time)
                 print(f"Episode {episode}/{self.config.training.max_episodes}, "
                       f"Score: {episode_metrics['score']:.2f}, "
                       f"Food: {episode_metrics['food_collected']}, "
                       f"Steps: {episode_metrics['steps']}, "
-                      f"Time: {elapsed_time:.1f}s")
+                      f"Time: {time_str}")
         
         except Exception as e:
             print(f"Training error: {e}")
@@ -349,6 +374,47 @@ class ContinuousTrainer:
             'mean_steps': np.mean(steps_list)
         }
     
+    def _update_adaptive_difficulty(self, episode_metrics: Dict[str, float]):
+        """Update adaptive difficulty based on recent performance."""
+        # Calculate food collection rate for this episode
+        food_collected = episode_metrics.get('food_collected', 0)
+        # Estimate total food available (use current environment's food count)
+        total_food_available = self.env.num_food_items
+        collection_rate = food_collected / max(1, total_food_available)
+        
+        # Track recent performance
+        self.recent_food_collection_rates.append(collection_rate)
+        if len(self.recent_food_collection_rates) > self.adaptive_window:
+            self.recent_food_collection_rates.pop(0)
+        
+        # Only adapt after we have enough data
+        if len(self.recent_food_collection_rates) >= self.adaptive_window:
+            avg_collection_rate = np.mean(self.recent_food_collection_rates)
+            
+            # Determine if we should adjust difficulty
+            old_food_count = self.current_food_count
+            
+            if avg_collection_rate > 0.6:  # Agent is doing well (>60% collection rate)
+                # Make it harder - reduce food count
+                self.current_food_count = max(self.min_food_count, self.current_food_count - 1)
+                if self.current_food_count != old_food_count:
+                    print(f"🧠 ADAPTIVE: Performance good ({avg_collection_rate:.1%}), reducing food count: {old_food_count} → {self.current_food_count}")
+            
+            elif avg_collection_rate < 0.25:  # Agent is struggling (<25% collection rate)
+                # Make it easier - increase food count
+                self.current_food_count = min(self.max_food_count, self.current_food_count + 1)
+                if self.current_food_count != old_food_count:
+                    print(f"🧠 ADAPTIVE: Performance poor ({avg_collection_rate:.1%}), increasing food count: {old_food_count} → {self.current_food_count}")
+            
+            # Update environment parameters if changed
+            if self.current_food_count != old_food_count:
+                self.env.base_num_food_items = self.current_food_count
+                self.eval_env.base_num_food_items = self.current_food_count
+                self.visual_env.base_num_food_items = self.current_food_count
+                
+                # Clear recent performance to give agent time to adapt
+                self.recent_food_collection_rates = []
+    
     def _save_model(self, filename: str):
         """Save model and training state."""
         filepath = os.path.join(self.model_dir, filename)
@@ -359,7 +425,9 @@ class ContinuousTrainer:
             'episode': self.episode,
             'total_steps': self.total_steps,
             'best_eval_score': self.best_eval_score,
-            'config': self.config
+            'config': self.config,
+            'current_food_count': self.current_food_count,
+            'recent_food_collection_rates': self.recent_food_collection_rates
         }
         
         training_filepath = filepath.replace('.pth', '_training_state.pth')
@@ -367,12 +435,35 @@ class ContinuousTrainer:
 
 
 def main():
-    """Demo continuous training script."""
+    """Demo continuous training script with adaptive food system."""
     from config.base_config import get_sac_snake_config
     
-    # Get configuration
+    # Get configuration for 1000 episodes with new food system
     config = get_sac_snake_config()
-    config.training.max_episodes = 500
+    config.training.max_episodes = 1000
+    config.training.eval_frequency = 5  # Evaluate every 5 episodes
+    config.training.experiment_name = "salp_snake_1000ep_fixed12"
+    
+    # Update environment params for fixed food system
+    FIXED_FOOD_COUNT = 12  # Easy to change this value
+    config.environment.params.update({
+        'num_food_items': FIXED_FOOD_COUNT,  # Fixed number of food items
+        'random_food_count': False,          # No randomization - always same count
+        'respawn_food': False,               # No respawning - episode ends when all collected
+        'forced_breathing': True             # Keep forced breathing for now
+    })
+    
+    print(f"🚀 Starting SALP fixed food training for {config.training.max_episodes} episodes...")
+    print(f"Configuration:")
+    print(f"  Episodes: {config.training.max_episodes}")
+    print(f"  Environment: {config.environment.name}")
+    print(f"  Agent: {config.agent.name}")
+    print(f"  Fixed food items: {FIXED_FOOD_COUNT} (always same count)")
+    print(f"  Random food count: {config.environment.params['random_food_count']}")
+    print(f"  Food respawning: {config.environment.params['respawn_food']}")
+    print(f"  Forced breathing: {config.environment.params['forced_breathing']}")
+    print(f"  🎯 Consistent challenge: Agent learns to collect all {FIXED_FOOD_COUNT} food items!")
+    print()
     
     # Create continuous trainer
     trainer = ContinuousTrainer(config)
