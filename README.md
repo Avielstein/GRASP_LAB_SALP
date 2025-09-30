@@ -8,11 +8,12 @@ This repository contains implementations of bio-inspired underwater robots that 
 
 ## 🎬 Demo Video
 
-Watch our AI-trained SALP robot in action! After 1000 episodes of reinforcement learning, the robot successfully navigates and collects food using bio-inspired jet propulsion.
+**Watch our AI-trained SALP robot in action!** After 1000 episodes of reinforcement learning, the robot successfully navigates and collects food using bio-inspired jet propulsion.
 
-[![SALP Robot Demo](https://img.youtube.com/vi/swl9mfE46uk/maxresdefault.jpg)](https://www.youtube.com/watch?v=swl9mfE46uk)
-
-**[▶️ Watch on YouTube](https://www.youtube.com/watch?v=swl9mfE46uk)**
+<div align="center">
+  <img src="videos/salp_demo.gif" alt="SALP Robot Demo" width="640">
+  <p><strong><a href="https://www.youtube.com/watch?v=swl9mfE46uk">▶️ Watch full video on YouTube</a></strong></p>
+</div>
 
 ### Performance Highlights:
 - **Score**: 450 points
