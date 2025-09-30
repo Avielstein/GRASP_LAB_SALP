@@ -12,12 +12,7 @@ This repository contains implementations of bio-inspired underwater robots that 
 
 <div align="center">
   <img src="videos/salp_demo.gif" alt="SALP Robot Demo" width="640">
-  <p><strong><a href="https://www.youtube.com/watch?v=swl9mfE46uk">▶️ Watch full video on YouTube</a></strong></p>
 </div>
-
-
-
-> 💡 To create your own videos of trained models, use: `python create_salp_video.py`
 
 ## Features
 
