@@ -6,6 +6,22 @@ Bio-inspired soft underwater robot simulation based on research from the Univers
 
 This repository contains implementations of bio-inspired underwater robots that mimic the locomotion of marine salps - barrel-shaped invertebrates that swim via jet propulsion through rhythmic body contractions and expansions.
 
+## 🎬 Demo Video
+
+Watch our AI-trained SALP robot in action! After 1000 episodes of reinforcement learning, the robot successfully navigates and collects food using bio-inspired jet propulsion.
+
+<video src="https://github.com/Avielstein/GRASP_LAB_SALP/raw/main/videos/salp_salp_snake_1000ep_fixed12_demo-episode-0.mp4" controls="controls" style="max-width: 730px;">
+</video>
+
+### Performance Highlights:
+- **Score**: 450 points
+- **Food Collected**: 5 out of 12 items
+- **Episode Length**: 1,851 steps (completed successfully)
+- **Training**: 1000 episodes with SAC (Soft Actor-Critic) algorithm
+- **Behavior**: Realistic breathing cycles, steerable nozzle navigation, bio-inspired locomotion
+
+> 💡 To create your own videos of trained models, use: `python create_salp_video.py`
+
 ## Features
 
 ### SALP Robot (`salp_robot.py`)
