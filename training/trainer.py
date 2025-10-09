@@ -12,7 +12,9 @@ import torch
 from config.base_config import ExperimentConfig
 from core.base_agent import BaseAgent, ReplayBuffer, Logger
 from agents.sac_agent import SACAgent
+from agents.sac_gail_agent import SACGAILAgent
 from environments.salp_snake_env import SalpSnakeEnv
+from training.expert_buffer import ExpertBuffer
 
 
 class Trainer:
@@ -85,8 +87,69 @@ class Trainer:
                 action_dim=action_dim,
                 action_space=self.env.action_space
             )
+        elif agent_type == "sac_gail":
+            # Load expert demonstrations if GAIL is configured
+            expert_buffer = None
+            if self.config.gail and self.config.gail.use_gail:
+                expert_buffer = self._load_expert_demonstrations()
+            
+            return SACGAILAgent(
+                config=self.config.agent,
+                obs_dim=obs_dim,
+                action_dim=action_dim,
+                action_space=self.env.action_space,
+                expert_buffer=expert_buffer,
+                use_gail=self.config.gail.use_gail if self.config.gail else False,
+                reward_env_weight=self.config.gail.reward_env_weight if self.config.gail else 1.0,
+                reward_gail_weight=self.config.gail.reward_gail_weight if self.config.gail else 0.0,
+                discriminator_update_freq=self.config.gail.discriminator_update_freq if self.config.gail else 1
+            )
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
+    
+    def _load_expert_demonstrations(self) -> ExpertBuffer:
+        """Load expert demonstrations for GAIL training."""
+        if not self.config.gail:
+            return None
+        
+        obs_dim = self.env.observation_space.shape[0]
+        action_dim = self.env.action_space.shape[0]
+        expert_buffer = ExpertBuffer(obs_dim, action_dim)
+        
+        # Load human demonstrations
+        if self.config.gail.load_human_demos:
+            human_path = os.path.join(self.config.gail.expert_demos_path, "human")
+            if os.path.exists(human_path):
+                print(f"Loading human demonstrations from {human_path}...")
+                expert_buffer.load_directory(human_path, source_filter='human')
+        
+        # Load agent demonstrations
+        if self.config.gail.load_agent_demos:
+            agent_path = os.path.join(self.config.gail.expert_demos_path, "agent")
+            if os.path.exists(agent_path):
+                print(f"Loading agent demonstrations from {agent_path}...")
+                expert_buffer.load_directory(agent_path, source_filter='agent')
+        
+        # Check minimum episodes requirement
+        if len(expert_buffer.episodes) < self.config.gail.min_expert_episodes:
+            print(f"\nWARNING: Only {len(expert_buffer.episodes)} expert episodes loaded.")
+            print(f"Minimum recommended: {self.config.gail.min_expert_episodes}")
+            print("GAIL training may not be effective with few demonstrations.")
+            print("Consider collecting more demonstrations using:")
+            print("  - python scripts/collect_human_demos.py")
+            print("  - python scripts/collect_agent_demos.py --model <path_to_model>\n")
+        
+        # Display expert buffer statistics
+        stats = expert_buffer.get_statistics()
+        print(f"\nExpert Buffer Statistics:")
+        print(f"  Total episodes: {stats['num_episodes']}")
+        print(f"  Total transitions: {stats['num_transitions']}")
+        print(f"  Average episode reward: {stats['avg_episode_reward']:.2f}")
+        print(f"  Average episode length: {stats['avg_episode_length']:.1f}")
+        print(f"  Sources: {stats['sources']}")
+        print()
+        
+        return expert_buffer
     
     def train(self):
         """Main training loop."""
@@ -152,11 +215,17 @@ class Trainer:
             # Take step
             next_obs, reward, done, truncated, info = self.env.step(action)
             
-            # Store experience
+            # Use hybrid reward for GAIL training
+            if hasattr(self.agent, 'compute_hybrid_reward'):
+                hybrid_reward = self.agent.compute_hybrid_reward(reward, obs, action)
+            else:
+                hybrid_reward = reward
+            
+            # Store experience with original environment reward
             self.replay_buffer.add(obs, action, reward, next_obs, done or truncated)
             
             # Update counters
-            episode_reward += reward
+            episode_reward += reward  # Track environment reward
             episode_steps += 1
             self.total_steps += 1
             

@@ -68,6 +68,33 @@ class AgentConfig:
 
 
 @dataclass
+class GAILConfig:
+    """Configuration for GAIL (Generative Adversarial Imitation Learning)."""
+    use_gail: bool = False
+    expert_demos_path: str = "expert_demos/"
+    discriminator_lr: float = 3e-4
+    discriminator_update_freq: int = 1
+    reward_env_weight: float = 0.3
+    reward_gail_weight: float = 0.7
+    min_expert_episodes: int = 5
+    load_human_demos: bool = True
+    load_agent_demos: bool = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "use_gail": self.use_gail,
+            "expert_demos_path": self.expert_demos_path,
+            "discriminator_lr": self.discriminator_lr,
+            "discriminator_update_freq": self.discriminator_update_freq,
+            "reward_env_weight": self.reward_env_weight,
+            "reward_gail_weight": self.reward_gail_weight,
+            "min_expert_episodes": self.min_expert_episodes,
+            "load_human_demos": self.load_human_demos,
+            "load_agent_demos": self.load_agent_demos
+        }
+
+
+@dataclass
 class TrainingConfig:
     """Configuration for training process."""
     max_episodes: int = 1000
@@ -106,6 +133,7 @@ class ExperimentConfig:
     environment: EnvironmentConfig
     agent: AgentConfig
     training: TrainingConfig
+    gail: Optional[GAILConfig] = None
     
     def save(self, filepath: str):
         """Save configuration to JSON file."""
@@ -114,6 +142,9 @@ class ExperimentConfig:
             "agent": self.agent.to_dict(),
             "training": self.training.to_dict()
         }
+        
+        if self.gail is not None:
+            config_dict["gail"] = self.gail.to_dict()
         
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'w') as f:
@@ -125,10 +156,15 @@ class ExperimentConfig:
         with open(filepath, 'r') as f:
             config_dict = json.load(f)
         
+        gail_config = None
+        if "gail" in config_dict:
+            gail_config = GAILConfig(**config_dict["gail"])
+        
         return cls(
             environment=EnvironmentConfig(**config_dict["environment"]),
             agent=AgentConfig(**config_dict["agent"]),
-            training=TrainingConfig(**config_dict["training"])
+            training=TrainingConfig(**config_dict["training"]),
+            gail=gail_config
         )
 
 
@@ -174,6 +210,62 @@ def get_sac_snake_config() -> ExperimentConfig:
     )
     
     return ExperimentConfig(env_config, agent_config, training_config)
+
+
+def get_sac_gail_snake_config() -> ExperimentConfig:
+    """Get configuration for SAC+GAIL agent in Snake-like environment."""
+    env_config = EnvironmentConfig(
+        name="salp_snake_gail",
+        type="salp_snake",
+        width=800,
+        height=600,
+        params={
+            "num_food_items": 12,
+            "food_reward": 15.0,
+            "collision_penalty": -30.0,
+            "time_penalty": -0.05,
+            "efficiency_bonus": 2.0,
+            "forced_breathing": True
+        }
+    )
+    
+    agent_config = AgentConfig(
+        name="sac_gail_salp",
+        type="sac_gail",
+        hidden_sizes=[256, 256],
+        learning_rate=3e-4,
+        batch_size=128,
+        buffer_size=500000,
+        params={
+            "alpha": 0.1,
+            "target_entropy": -1.0,
+            "alpha_lr": 3e-4,
+            "discriminator_lr": 3e-4
+        }
+    )
+    
+    training_config = TrainingConfig(
+        max_episodes=1500,
+        max_steps_per_episode=5000,
+        eval_frequency=25,
+        save_frequency=50,
+        start_training_after=500,
+        experiment_name="salp_snake_sac_gail"
+    )
+    
+    gail_config = GAILConfig(
+        use_gail=True,
+        expert_demos_path="expert_demos/",
+        discriminator_lr=3e-4,
+        discriminator_update_freq=1,
+        reward_env_weight=0.3,
+        reward_gail_weight=0.7,
+        min_expert_episodes=5,
+        load_human_demos=True,
+        load_agent_demos=True
+    )
+    
+    return ExperimentConfig(env_config, agent_config, training_config, gail_config)
 
 
 def get_sac_navigation_config() -> ExperimentConfig:
