@@ -170,16 +170,14 @@ class ContinuousTrainer:
                     # Check for new best model
                     if eval_metrics['mean_score'] > self.best_eval_score:
                         self.best_eval_score = eval_metrics['mean_score']
+                        
+                        # Save with clear best model name
                         self._save_model("best_model.pth")
                         
                         # Update visual agent with new best model
                         self._update_visual_agent()
                         
-                        print(f"🏆 NEW BEST MODEL! Score: {self.best_eval_score:.2f} - Visual updated!")
-                
-                # Save model periodically
-                if episode % self.config.training.save_frequency == 0:
-                    self._save_model(f"model_episode_{episode}.pth")
+                        print(f"🏆 NEW BEST MODEL! Score: {self.best_eval_score:.2f} at episode {episode} - Visual updated!")
                 
                 # Print progress every episode with better time formatting
                 elapsed_time = time.time() - start_time
@@ -437,12 +435,17 @@ class ContinuousTrainer:
 def main():
     """Demo continuous training script with adaptive food system."""
     from config.base_config import get_sac_snake_config
+    from datetime import datetime
+    
+    # Create timestamp-based experiment name
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_name = f"salp_training_{timestamp}"
     
     # Get configuration for 1000 episodes with new food system
     config = get_sac_snake_config()
     config.training.max_episodes = 1000
     config.training.eval_frequency = 5  # Evaluate every 5 episodes
-    config.training.experiment_name = "salp_snake_1000ep_fixed12"
+    config.training.experiment_name = experiment_name
     
     # Update environment params for fixed food system
     FIXED_FOOD_COUNT = 12  # Easy to change this value
