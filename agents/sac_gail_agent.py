@@ -53,6 +53,7 @@ class SACGAILAgent(SACAgent):
         self.initial_gail_weight = reward_gail_weight
         self.discriminator_update_freq = discriminator_update_freq
         self.expert_buffer = expert_buffer
+        self._empty_buffer_warned = False  # Track if we've warned about empty buffer
         
         # Performance-based adaptive weights
         self.use_adaptive_weights = False
@@ -142,9 +143,15 @@ class SACGAILAgent(SACAgent):
                     
                     # Merge metrics
                     sac_metrics.update(disc_metrics)
+                    
+                    # Reset warning flag if successful
+                    self._empty_buffer_warned = False
                 except ValueError as e:
-                    # Expert buffer might be empty
-                    print(f"Warning: Could not update discriminator: {e}")
+                    # Expert buffer might be empty - only warn once
+                    if not self._empty_buffer_warned:
+                        print(f"Warning: Could not update discriminator: {e}")
+                        print("         (This warning will only be shown once)")
+                        self._empty_buffer_warned = True
         
         return sac_metrics
     

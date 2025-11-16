@@ -302,3 +302,61 @@ def get_sac_navigation_config() -> ExperimentConfig:
     )
     
     return ExperimentConfig(env_config, agent_config, training_config)
+
+
+def get_single_food_optimal_config() -> ExperimentConfig:
+    """Get configuration for single food optimal navigation experiment with SAC+GAIL."""
+    env_config = EnvironmentConfig(
+        name="salp_single_food_optimal",
+        type="salp_snake",
+        width=800,
+        height=600,
+        params={
+            "num_food_items": 1,              # Single food target
+            "proximity_reward_weight": 1,   # Strong gradient for learning 
+            "time_penalty": 0.0,              # No time penalty
+            "respawn_food": False,            # Episode ends when food collected
+            "forced_breathing": True,         # Automatic breathing
+            "max_steps_without_food": 500,    # Shorter timeout for single food
+            "collision_penalty": -50.0,       # Wall collision penalty
+            "food_reward": 200.0,             # Success reward (still dominant over proximity)
+            "efficiency_bonus": 1.0           # Bonus per step saved (time-remaining bonus)
+        }
+    )
+    
+    agent_config = AgentConfig(
+        name="sac_single_food",
+        type="sac",                         # Use pure SAC agent
+        hidden_sizes=[256, 256],
+        learning_rate=3e-4,
+        batch_size=128,
+        buffer_size=500000,
+        params={
+            "alpha": 0.5,                   # Higher entropy = more exploration
+            "target_entropy": -0.5,         # Less negative = more randomness
+            "alpha_lr": 3e-4
+        }
+    )
+    
+    training_config = TrainingConfig(
+        max_episodes=1000,
+        max_steps_per_episode=1500,          # Matches environment timeout
+        eval_frequency=25,
+        save_frequency=50,
+        start_training_after=500,
+        experiment_name="single_food_optimal_navigation"
+    )
+    
+    gail_config = GAILConfig(
+        use_gail=False,                     # Disabled - using pure SAC with shaped rewards
+        expert_demos_path="expert_demos/",
+        discriminator_lr=3e-4,
+        discriminator_update_freq=1,
+        reward_env_weight=1.0,              # 100% environment rewards (proximity + time)
+        reward_gail_weight=0.0,             # No GAIL
+        min_expert_episodes=5,
+        load_human_demos=False,             # Not needed without GAIL
+        load_agent_demos=False
+    )
+    
+    return ExperimentConfig(env_config, agent_config, training_config, gail_config)

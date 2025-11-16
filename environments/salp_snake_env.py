@@ -35,7 +35,8 @@ class SalpSnakeEnv(SalpRobotEnv):
     def __init__(self, render_mode: Optional[str] = None, width: int = 800, height: int = 600,
                  num_food_items: int = 5, food_reward: float = 10.0, collision_penalty: float = -50.0,
                  time_penalty: float = -0.1, efficiency_bonus: float = 1.0, forced_breathing: bool = True,
-                 max_observed_food: int = 3, random_food_count: bool = False, respawn_food: bool = True):
+                 max_observed_food: int = 3, random_food_count: bool = False, respawn_food: bool = True,
+                 proximity_reward_weight: float = 0.0, max_steps_without_food: int = 1500):
         
         # Snake-specific parameters
         self.base_num_food_items = max(0, num_food_items)  # Base number for random generation
@@ -47,6 +48,8 @@ class SalpSnakeEnv(SalpRobotEnv):
         self.efficiency_bonus = efficiency_bonus
         self.forced_breathing = forced_breathing  # New parameter for training mode
         self.max_observed_food = max_observed_food  # Maximum food items in observation space
+        self.proximity_reward_weight = proximity_reward_weight  # Weight for proximity-based reward shaping
+        self.max_steps_without_food = max_steps_without_food  # Timeout for food collection
         
         # Current episode food count (will be set in reset)
         self.num_food_items = self.base_num_food_items
@@ -60,7 +63,6 @@ class SalpSnakeEnv(SalpRobotEnv):
         self.score = 0
         self.food_collected = 0
         self.steps_since_food = 0
-        self.max_steps_without_food = 1500  # Increased from 500 to give more time to learn
         
         # Initialize parent class
         super().__init__(render_mode, width, height)
@@ -280,16 +282,53 @@ class SalpSnakeEnv(SalpRobotEnv):
                 return
     
     def _calculate_snake_reward(self, base_reward: float, food_collected: bool, collision: bool) -> float:
-        """Calculate reward focused only on food collection."""
+        """Calculate reward with alignment-based shaping, time penalty, and efficiency bonus."""
         reward = 0.0
         
-        # ONLY food collection reward - no other rewards
+        # Food collection reward (main objective)
         if food_collected:
-            reward += 100.0  # Large reward for successful food collection
+            reward += self.food_reward  # Use configured food reward
+            
+            # Efficiency bonus: reward for time saved (steps remaining)
+            if self.efficiency_bonus > 0:
+                steps_remaining = self.max_steps_without_food - self.steps_since_food
+                time_bonus = self.efficiency_bonus * steps_remaining
+                reward += time_bonus
         
         # Collision penalty to prevent wall hitting
         if collision:
-            reward -= 50.0  # Penalty for collision
+            reward += self.collision_penalty  # Use configured collision penalty (negative value)
+        
+        # Alignment reward (heading-based shaping) - rewards facing toward food
+        if self.proximity_reward_weight > 0:  # Reuse this weight for alignment reward
+            nearest_food = self._get_nearest_food_position()
+            if nearest_food is not None:
+                # Calculate angle from robot to food
+                angle_to_food = math.atan2(
+                    nearest_food[1] - self.robot_pos[1],
+                    nearest_food[0] - self.robot_pos[0]
+                )
+                
+                # Calculate alignment: how well robot is facing the food
+                # robot_angle is the robot's current facing direction
+                alignment_angle = angle_to_food - self.robot_angle
+                
+                # Normalize to [-π, π]
+                while alignment_angle > math.pi:
+                    alignment_angle -= 2 * math.pi
+                while alignment_angle < -math.pi:
+                    alignment_angle += 2 * math.pi
+                
+                # Alignment reward using cosine
+                # cos(0°) = 1.0 (facing directly at food)
+                # cos(90°) = 0.0 (perpendicular)
+                # cos(180°) = -1.0 (facing away)
+                alignment_score = math.cos(alignment_angle)
+                alignment_reward = self.proximity_reward_weight * alignment_score
+                reward += alignment_reward
+        
+        # Time penalty (brevity incentive) - encourages finding optimal/shortest path
+        reward += self.time_penalty
         
         return reward
     
@@ -313,6 +352,22 @@ class SalpSnakeEnv(SalpRobotEnv):
                     min_distance = distance
         
         return min_distance
+    
+    def _get_nearest_food_position(self) -> Optional[List[float]]:
+        """Get position of nearest food item."""
+        min_distance = None
+        nearest_food = None
+        robot_pos = self.robot_pos
+        
+        for food_pos in self.food_positions:
+            if food_pos is not None:
+                distance = math.sqrt((robot_pos[0] - food_pos[0])**2 + 
+                                   (robot_pos[1] - food_pos[1])**2)
+                if min_distance is None or distance < min_distance:
+                    min_distance = distance
+                    nearest_food = food_pos
+        
+        return nearest_food
     
     def _get_extended_observation(self) -> np.ndarray:
         """Get extended observation with fixed-size food information for variable food counts."""
