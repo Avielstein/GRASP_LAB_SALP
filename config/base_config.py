@@ -313,14 +313,14 @@ def get_single_food_optimal_config() -> ExperimentConfig:
         height=600,
         params={
             "num_food_items": 1,              # Single food target
-            "proximity_reward_weight": 1,   # Strong gradient for learning 
-            "time_penalty": 0.0,              # No time penalty
+            "proximity_reward_weight": 5.0,   # STRONG guidance - clear gradient to food!
+            "time_penalty": -0.1,             # Tiny penalty - don't punish exploration too much
             "respawn_food": False,            # Episode ends when food collected
             "forced_breathing": True,         # Automatic breathing
-            "max_steps_without_food": 500,    # Shorter timeout for single food
-            "collision_penalty": -50.0,       # Wall collision penalty
-            "food_reward": 200.0,             # Success reward (still dominant over proximity)
-            "efficiency_bonus": 1.0           # Bonus per step saved (time-remaining bonus)
+            "max_steps_without_food": 1500,   # Give time to learn
+            "collision_penalty": -10.0,       # Small penalty - don't be too harsh
+            "food_reward": 1000.0,            # HUGE reward - make success very attractive!
+            "efficiency_bonus": 0.0           # Keep it simple - just reach food
         }
     )
     
