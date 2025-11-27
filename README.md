@@ -11,7 +11,7 @@ This repository contains implementations of bio-inspired underwater robots that 
 **Watch our AI-trained SALP robot in action!** 
 
 <div align="center">
-  <img src="videos/salp_demo.gif" alt="SALP Robot Demo" width="640">
+  <img src="assets/videos/salp_demo.gif" alt="SALP Robot Demo" width="640">
 </div>
 
 ## Features
@@ -36,6 +36,12 @@ See `SALP_RESEARCH.md` for detailed research references and implementation notes
 
 ## Installation
 
+### Option 1: Install as a Package (Recommended)
+```bash
+pip install -e .
+```
+
+### Option 2: Install Dependencies Only
 ```bash
 pip install -r requirements.txt
 ```
@@ -44,7 +50,12 @@ pip install -r requirements.txt
 
 ### Run SALP Robot Demo
 ```bash
-python salp_robot.py
+python examples/demo.py
+```
+
+Or from utilities:
+```bash
+python scripts/utilities/salp_robot.py
 ```
 
 **Controls:**
@@ -59,10 +70,10 @@ The SALP robot is implemented as a Gymnasium environment and can be used for rei
 
 ```python
 import gymnasium as gym
-from salp_robot import SalpRobotEnv
+from salp.environments import SalpSnakeEnv
 
 # Create environment
-env = SalpRobotEnv(render_mode="human")
+env = SalpSnakeEnv(render_mode="human")
 observation, info = env.reset()
 
 # Run simulation
@@ -104,13 +115,40 @@ This simulation is designed for:
 - **Bio-Inspired Robotics**: Understanding underwater propulsion mechanisms
 - **Control Systems**: Developing efficient underwater vehicle control strategies
 
+## Project Structure
+
+```
+GRASP_LAB_SALP/
+├── src/salp/              # Main package (installable)
+│   ├── agents/            # Agent implementations (SAC, GAIL, etc.)
+│   ├── environments/      # Gymnasium environments
+│   ├── training/          # Training utilities
+│   ├── core/              # Core base classes
+│   └── config/            # Configuration
+├── scripts/               # Executable scripts
+│   ├── training/          # Training scripts
+│   ├── testing/           # Test scripts
+│   ├── collection/        # Demo collection scripts
+│   └── utilities/         # Utility scripts (video conversion, visualizations)
+├── examples/              # Usage examples
+├── data/                  # Data files
+│   ├── expert_demos/      # Expert demonstrations
+│   ├── models/            # Saved models
+│   └── logs/              # Training logs
+├── assets/                # Media files
+│   ├── images/            # PNG diagrams
+│   └── videos/            # Video files
+├── tests/                 # Test files
+└── docs/                  # Documentation
+```
+
 ## Research References
 
 - **"Origami-inspired robot that swims via jet propulsion"** (2021) - IEEE Robotics and Automation Letters
 - **"Effect of Jet Coordination on Underwater Propulsion with the Multi-Robot SALP System"** (2025)
 - **"Drag coefficient characterization of the origami magic ball"** (2023)
 
-See `SALP_RESEARCH.md` for complete research documentation and implementation notes.
+See `docs/SALP_RESEARCH.md` for complete research documentation and implementation notes.
 
 ## Contributing
 

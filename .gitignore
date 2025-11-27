@@ -56,9 +56,9 @@ Thumbs.db
 .env
 .venv
 
-# Models and logs
-models/
-logs/
+# Data, models and logs
+data/models/
+data/logs/
 *.log
 
 # Temporary files
