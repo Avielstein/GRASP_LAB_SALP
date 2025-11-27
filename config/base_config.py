@@ -312,14 +312,14 @@ def get_single_food_optimal_config() -> ExperimentConfig:
         width=800,
         height=600,
         params={
-            "num_food_items": 1,              # Single food target
+            "num_food_items": 1,              # Single food target at a time
             "proximity_reward_weight": 5.0,   # STRONG guidance - clear gradient to food!
             "time_penalty": -0.1,             # Tiny penalty - don't punish exploration too much
-            "respawn_food": False,            # Episode ends when food collected
+            "respawn_food": True,             # Food respawns after collection - continuous!
             "forced_breathing": True,         # Automatic breathing
-            "max_steps_without_food": 1500,   # Give time to learn
+            "max_steps_without_food": 1500,   # Timer resets on each collection
             "collision_penalty": -10.0,       # Small penalty - don't be too harsh
-            "food_reward": 1000.0,            # HUGE reward - make success very attractive!
+            "food_reward": 1000.0,            # HUGE reward for each collection!
             "efficiency_bonus": 0.0           # Keep it simple - just reach food
         }
     )

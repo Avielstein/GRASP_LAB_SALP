@@ -33,7 +33,7 @@ class ContinuousSB3Trainer:
     - Visual agent updates automatically when better model is found
     """
     
-    def __init__(self, total_timesteps: int = 100000, eval_freq: int = 5000, single_food: bool = False):
+    def __init__(self, total_timesteps: int = 100000, eval_freq: int = 5000, single_food: bool = False, load_model: str = None):
         # Use single food config if requested, otherwise default multi-food
         if single_food:
             from config.base_config import get_single_food_optimal_config
@@ -53,20 +53,25 @@ class ContinuousSB3Trainer:
         self.visual_env = SalpSnakeEnv(render_mode="human", **self.config.environment.params)
         print("✓ Environments created")
         
-        # Create agent
-        print("Creating SB3 SAC agent...")
-        self.agent = SAC(
-            policy="MlpPolicy",
-            env=self.train_env,
-            learning_rate=self.config.agent.learning_rate,
-            buffer_size=self.config.agent.buffer_size,
-            batch_size=self.config.agent.batch_size,
-            tau=self.config.agent.tau,
-            gamma=self.config.agent.gamma,
-            policy_kwargs=dict(net_arch=self.config.agent.hidden_sizes),
-            verbose=0,  # Quiet mode for cleaner output
-        )
-        print("✓ Agent created")
+        # Create or load agent
+        if load_model:
+            print(f"Loading SB3 SAC agent from: {load_model}")
+            self.agent = SAC.load(load_model, env=self.train_env)
+            print(f"✓ Agent loaded (previously trained: {self.agent.num_timesteps:,} timesteps)")
+        else:
+            print("Creating SB3 SAC agent...")
+            self.agent = SAC(
+                policy="MlpPolicy",
+                env=self.train_env,
+                learning_rate=self.config.agent.learning_rate,
+                buffer_size=self.config.agent.buffer_size,
+                batch_size=self.config.agent.batch_size,
+                tau=self.config.agent.tau,
+                gamma=self.config.agent.gamma,
+                policy_kwargs=dict(net_arch=self.config.agent.hidden_sizes),
+                verbose=0,  # Quiet mode for cleaner output
+            )
+            print("✓ Agent created")
         
         # Current best model for visualization
         self.visual_model = None
@@ -314,11 +319,19 @@ def main():
         action="store_true",
         help="Use single food configuration (default: multi-food)"
     )
+    parser.add_argument(
+        "--load-model",
+        type=str,
+        default=None,
+        help="Path to model to continue training from (.zip file)"
+    )
     
     args = parser.parse_args()
     
     print("\n" + "=" * 70)
-    if args.single_food:
+    if args.load_model:
+        print("🔄 CONTINUE TRAINING - Loading existing model")
+    elif args.single_food:
         print("🎯 SINGLE FOOD LEARNING - Agent learns to reach one target")
     else:
         print("🍎 MULTI FOOD LEARNING - Agent learns to collect multiple targets")
@@ -327,7 +340,8 @@ def main():
     trainer = ContinuousSB3Trainer(
         total_timesteps=args.timesteps,
         eval_freq=args.eval_freq,
-        single_food=args.single_food
+        single_food=args.single_food,
+        load_model=args.load_model
     )
     
     trainer.train()
