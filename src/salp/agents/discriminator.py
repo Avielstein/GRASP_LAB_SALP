@@ -10,7 +10,7 @@ import torch.optim as optim
 import numpy as np
 from typing import Dict, Tuple
 
-from core.base_agent import BaseNetwork
+from salp.core.base_agent import BaseNetwork
 
 
 class Discriminator(BaseNetwork):

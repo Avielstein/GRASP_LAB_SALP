@@ -1,15 +1,35 @@
 """
 Stable Baselines3 SAC agent wrapper for SALP environments.
 This provides a standard, well-tested SAC implementation using SB3.
+
+You can easily test different network architectures by modifying the policy_kwargs
+parameter without rewriting any core RL code. SB3 handles all the algorithm logic.
+
+Example architectures:
+    # Small network (faster, less capacity):
+    policy_kwargs = dict(net_arch=[64, 64])
+    
+    # Medium network (balanced):
+    policy_kwargs = dict(net_arch=[256, 256])
+    
+    # Large network (more capacity):
+    policy_kwargs = dict(net_arch=[512, 512, 256])
+    
+    # Asymmetric (different for actor/critic):
+    policy_kwargs = dict(net_arch=dict(pi=[256, 256], qf=[512, 512]))
+    
+    # With different activation:
+    policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.ELU)
 """
 
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import os
+import torch.nn as nn
 
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import BaseCallback
-from config.base_config import AgentConfig
+from salp.config.base_config import AgentConfig
 
 
 class SB3SACAgent:
