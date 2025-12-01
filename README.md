@@ -6,9 +6,21 @@ Bio-inspired soft underwater robot simulation based on research from the Univers
 
 This repository contains implementations of bio-inspired underwater robots that mimic the locomotion of marine salps - barrel-shaped invertebrates that swim via jet propulsion through rhythmic body contractions and expansions.
 
-## 🎬 Demo Video
+## 🎬 Demo Videos
 
 **Watch our AI-trained SALP robot in action!** 
+
+### Single Target Navigation (Long-Horizon)
+*5000 timesteps of continuous navigation with respawning food target*
+
+<div align="center">
+  <img src="assets/videos/salp_20251201_110632.gif" alt="SALP Single Target Tracking" width="640">
+</div>
+
+**Performance:** 6 food items collected, 0 collisions over 5000 steps
+
+### Multi-Target Environment
+*Target-rich environment demonstration*
 
 <div align="center">
   <img src="assets/videos/salp_demo.gif" alt="SALP Robot Demo" width="640">
