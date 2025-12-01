@@ -9,12 +9,12 @@ import numpy as np
 from typing import Dict, Any, Optional
 import torch
 
-from config.base_config import ExperimentConfig
-from core.base_agent import BaseAgent, ReplayBuffer, Logger
-from agents.sac_agent import SACAgent
-from agents.sac_gail_agent import SACGAILAgent
-from environments.salp_snake_env import SalpSnakeEnv
-from training.expert_buffer import ExpertBuffer
+from salp.config.base_config import ExperimentConfig
+from salp.core.base_agent import BaseAgent, ReplayBuffer, Logger
+from salp.agents.sac_agent import SACAgent
+from salp.agents.sac_gail_agent import SACGAILAgent
+from salp.environments.salp_snake_env import SalpSnakeEnv
+from salp.training.expert_buffer import ExpertBuffer
 
 
 class Trainer:
