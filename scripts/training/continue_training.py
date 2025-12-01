@@ -19,37 +19,45 @@ def find_best_model():
     """Find the best performing model from available checkpoints."""
     models_dir = "models"
     
-    # Prioritize optimized model first
-    optimized_dir = os.path.join(models_dir, "salp_snake_sac_optimized")
-    if os.path.exists(optimized_dir):
-        optimized_model = os.path.join(optimized_dir, "best_model.pth")
-        if os.path.exists(optimized_model):
-            print(f"Using optimized model: salp_snake_sac_optimized")
-            return optimized_model, "optimized"
+    # Search for any available model directories
+    if not os.path.exists(models_dir):
+        return None, None
     
-    # Fallback to overnight model
-    overnight_dir = os.path.join(models_dir, "salp_snake_sac_overnight")
-    if os.path.exists(overnight_dir):
-        overnight_model = os.path.join(overnight_dir, "best_model.pth")
-        if os.path.exists(overnight_model):
-            # Try to get score from summary
-            summary_path = os.path.join(overnight_dir, "training_summary.txt")
-            score = "unknown"
-            if os.path.exists(summary_path):
-                try:
-                    with open(summary_path, 'r') as f:
-                        content = f.read()
-                        for line in content.split('\n'):
-                            if "Best Evaluation Score:" in line:
-                                score = float(line.split(":")[1].strip())
-                                break
-                except Exception as e:
-                    print(f"Error reading summary: {e}")
-            
-            print(f"Using overnight model: salp_snake_sac_overnight (score: {score})")
-            return overnight_model, score
+    # Look for directories with best_model.pth
+    model_dirs = []
+    for dir_name in os.listdir(models_dir):
+        dir_path = os.path.join(models_dir, dir_name)
+        if os.path.isdir(dir_path):
+            best_model_path = os.path.join(dir_path, "best_model.pth")
+            if os.path.exists(best_model_path):
+                # Try to get score from training state
+                training_state_path = best_model_path.replace('.pth', '_training_state.pth')
+                score = -float('inf')
+                if os.path.exists(training_state_path):
+                    try:
+                        import torch
+                        training_state = torch.load(training_state_path, map_location='cpu')
+                        score = training_state.get('best_eval_score', -float('inf'))
+                    except Exception as e:
+                        print(f"Warning: Could not load training state for {dir_name}: {e}")
+                
+                model_dirs.append((dir_name, best_model_path, score))
     
-    return None, None
+    if not model_dirs:
+        return None, None
+    
+    # Sort by score (highest first)
+    model_dirs.sort(key=lambda x: x[2], reverse=True)
+    
+    # Return the best one
+    best_dir, best_path, best_score = model_dirs[0]
+    print(f"Using model from: {best_dir}")
+    if best_score > -float('inf'):
+        print(f"Score: {best_score:.2f}")
+    else:
+        print(f"Score: unknown")
+    
+    return best_path, best_score
 
 
 class ContinuousTrainerFromCheckpoint(ContinuousTrainer):
