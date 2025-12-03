@@ -1,6 +1,6 @@
 """
-Realistic SALP Robot Simulation
-Bio-inspired soft underwater robot with steerable rear nozzle and realistic breathing cycles.
+SALP Robot Simulation
+Bio-inspired soft underwater robot with steerable rear nozzle.
 Based on research from University of Pennsylvania Sung Robotics Lab.
 """
 
@@ -10,7 +10,173 @@ import numpy as np
 import pygame
 import math
 from typing import Tuple, Optional, Dict, Any
+import matplotlib.pyplot as plt
 
+class Robot():
+    phase = ["contract", "release", "coast"]
+
+    def __init__(self, dry_mass: float, init_length: float, init_width: float, max_contraction: float, nozzle_area: float):
+        self.dry_mass = dry_mass # kg
+        self.init_length = init_length # meters
+        self.init_width = init_width # meters
+        self.max_contraction = max_contraction  # max contraction length
+        self.state = "rest"
+        self.contraciton = 0.0  # contraction level
+        self.angle = 0.0  # current angle of nozzle
+        self.cycle = 0
+        self.dt = 0.01
+        self.time = 0.0
+        self.cycle_time = 0.0
+        self.positions = np.zeros(3)  # x, y, z positions
+        self.velocities = np.zeros(3)  # x, y, z velocities
+        self.previous_water_volume = 0.0
+        self.nozzle_area = 0.0001  # m^2, cross-sectional area of the nozzle
+
+    def set_control(self, contraction: float, angle: float):
+
+        self.contraciton = contraction
+        self.angle = angle
+        self.cycle += 1 
+
+    def get_state(self) -> str:
+
+        contract_time = self._contract_model()
+        release_time = self._release_model()
+
+        if self.cycle_time < contract_time:
+            self.state = self.phase[0]  # contract
+        elif self.cycle_time < contract_time + release_time:
+            self.state = self.phase[1]  # release
+        else:
+            self.state = self.phase[2]  # coast
+        return self.state
+
+    def step(self, time: float):
+
+        self.get_state()
+        if self.state == self.phase[0]:  # contract
+            self.contract(inhale=True) 
+        elif self.state == self.phase[1]:  # release
+            self.release() 
+        else:
+            self.coasting()
+
+    def contract(self):
+        # computes
+        # a = F/m
+        # v = v + a*dt
+        # x = x + v*dt
+
+        self._get_jet_force()
+        self.get_mass()
+        a = self.jet_force / self.mass  # acceleration
+        self.velocities += a * self.dt  # update velocities
+        self.positions += self.velocities * self.dt  # update positions
+
+    def release(self):
+        pass
+
+    def coasting(self):
+        pass
+    
+    def _get_jet_force(self) -> float:
+
+        water_mass = self._get_water_volume()
+        mass_rate = (water_mass - self.previous_water_volume) / self.dt
+        jet_velocity = self._get_jet_velocity()
+        jet_force = mass_rate * jet_velocity
+
+        return jet_force
+    
+    def _get_jet_velocity(self) -> float:
+        
+        # velocity is with respect to the robot frame
+        water_volume = self._get_water_volume()
+        volume_rate = (water_volume - self.previous_water_volume) / self.dt
+        jet_velocity = volume_rate / self.nozzle_area
+
+        return jet_velocity
+    
+    def _get_drag_force(self) -> float:
+
+
+
+    def _get_current_length(self, time) -> float:
+
+        if self.state == self.phase[0]:  # inhale
+            length = self._contract_model(time)
+        elif self.state == self.phase[1]:  # exhale
+            length = self._release_model(time)
+        else:
+            length = self.init_length
+
+        return length
+    
+    def _get_current_width(self) -> float:
+
+        if self.state == self.phase[0]:  # inhale
+            width = self._contract_model(time)
+        elif self.state == self.phase[1]:  # exhale
+            width = self._release_model(time)
+        else:
+            width = self.init_width
+
+        return width
+
+    def _get_water_volume(self) -> float:
+        
+        length = self._get_current_length()
+        width = self._get_current_width()
+        volume = 4/3*np.pi*(length/2)*(width/2)**2
+
+        return volume
+
+    def _get_water_mass(self) -> float:
+
+        density = 997  # kg/m^3
+        mass = density * self._get_water_volume()
+
+        return mass
+
+    def _contract_model(self) -> float:
+        # Simple model for contraction over time
+        rate = 0.06/3  # m/s
+        time = self.contraciton / rate
+        return time
+
+    def _release_model(self) -> float:
+        # Simple model for release over time
+        rate = 0.06/1.5  # m/s
+        time = self.contraciton / rate
+        return time 
+
+
+    # def _test_compression_speed(self):
+    #     # function is designed to model a constant force presses on a spring 
+    #     # with a mass on it
+    #     F = 1  # N
+    #     k = 1  # N/m
+    #     m = 70   # kg
+    #     T = 5  # s
+    #     n = 500  # steps
+    #     x = np.zeros(n)  # m # displacement
+    #     v = np.zeros(n)  # m/s # velocity
+    #     a = np.zeros(n)  # m/s^2 # acceleration
+    #     dt = T / n  # s # time step
+    #     for i in range(n-1):
+    #         a[i] = (F - k*x[i]) / m
+    #         v[i+1] = v[i] + a[i]*dt
+    #         x[i+1] = x[i] + v[i]*dt
+
+    #     plt.plot(np.arange(0, T, dt), x*1000, label='Displacement')
+    #     # plt.plot(np.arange(0, T, dt), v, color='orange', label='Velocity')
+    #     # plt.plot(np.arange(0, T, dt), a, color='green', label='Acceleration')
+    #     plt.xlabel('Time (s)')
+    #     plt.ylabel('Displacement (mm)')
+    #     plt.title('Compression Speed Test')
+    #     plt.legend()
+    #     plt.grid()
+    #     plt.show()
 
 class SalpRobotEnv(gym.Env):
     """
@@ -539,3 +705,9 @@ class SalpRobotEnv(gym.Env):
         if self.screen is not None:
             pygame.display.quit()
             pygame.quit()
+
+
+if __name__ == "__main__":
+    
+    robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.1)
+    robot._test_compression_speed()
