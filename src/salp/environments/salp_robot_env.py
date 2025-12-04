@@ -13,6 +13,12 @@ from typing import Tuple, Optional, Dict, Any
 import matplotlib.pyplot as plt
 
 class Robot():
+    
+    # TODO:
+    # 1. implement nozzle steering behavior
+    # 2. scale the actions from RL inputs to robot control inputs
+    # 3. normalize the observation space numbers
+    #  
     phase = ["contract", "release", "coast"]
 
     def __init__(self, dry_mass: float, init_length: float, init_width: float, max_contraction: float, nozzle_area: float):
@@ -31,27 +37,33 @@ class Robot():
         self.velocities = np.zeros(3)  # x, y, z velocities
         self.previous_water_volume = 0.0
         self.nozzle_area = 0.0001  # m^2, cross-sectional area of the nozzle
+        self.density = 0  # kg/m^3, density of water
+        self.contract_time = 0.0
+        self.release_time = 0.0
+    
+    def set_environment(self, density: float):
+        self.density = density
 
     def set_control(self, contraction: float, angle: float):
 
         self.contraciton = contraction
         self.angle = angle
-        self.cycle += 1 
+        self.cycle += 1
+
+        self.contract_time = self._contract_model()
+        self.release_time = self._release_model() 
 
     def get_state(self) -> str:
 
-        contract_time = self._contract_model()
-        release_time = self._release_model()
-
-        if self.cycle_time < contract_time:
+        if self.cycle_time < self.contract_time:
             self.state = self.phase[0]  # contract
-        elif self.cycle_time < contract_time + release_time:
+        elif self.cycle_time < self.contract_time + self.release_time:
             self.state = self.phase[1]  # release
         else:
             self.state = self.phase[2]  # coast
         return self.state
 
-    def step(self, time: float):
+    def step(self):
 
         self.get_state()
         if self.state == self.phase[0]:  # contract
@@ -67,17 +79,39 @@ class Robot():
         # v = v + a*dt
         # x = x + v*dt
 
-        self._get_jet_force()
-        self.get_mass()
-        a = self.jet_force / self.mass  # acceleration
+        jet_force = self._get_jet_force()
+        added_mass = self._get_mass()
+        drag_force = self._get_drag_force()
+        a = (self.jet_force - drag_force - added_mass) / self.mass  # acceleration
         self.velocities += a * self.dt  # update velocities
         self.positions += self.velocities * self.dt  # update positions
 
+        self.cycle_time += self.dt
+        self.time += self.dt
+
     def release(self):
-        pass
+
+        jet_force = self._get_jet_force()
+        added_mass = self._get_mass()
+        drag_force = self._get_drag_force()
+        a = (self.jet_force - drag_force - added_mass) / self.mass  # acceleration
+        self.velocities += a * self.dt  # update velocities
+        self.positions += self.velocities * self.dt  # update positions
+
+        self.cycle_time += self.dt
+        self.time += self.dt 
 
     def coasting(self):
-        pass
+
+        jet_force = self._get_jet_force()
+        added_mass = self._get_mass()
+        drag_force = self._get_drag_force()
+        a = (self.jet_force - drag_force - added_mass) / self.mass  # acceleration
+        self.velocities += a * self.dt  # update velocities
+        self.positions += self.velocities * self.dt  # update positions
+
+        self.cycle_time += self.dt
+        self.time += self.dt 
     
     def _get_jet_force(self) -> float:
 
@@ -99,7 +133,15 @@ class Robot():
     
     def _get_drag_force(self) -> float:
 
+        drag_force = 0.5 * self.density * (self.velocities**2) * self._get_cross_sectional_area() * self.drag_coefficient  # drag coefficient for sphere is 0.47
 
+        return drag_force
+    
+    def _get_added_mass(self) -> float:
+
+        added_mass = 0.5 * self.density * self._get_water_volume()  # added mass for sphere is 0.5 * density * volume
+
+        return added_mass
 
     def _get_current_length(self, time) -> float:
 
@@ -137,6 +179,14 @@ class Robot():
         mass = density * self._get_water_volume()
 
         return mass
+
+    def _get_cross_sectional_area(self) -> float:
+        
+        length = self._get_current_length()
+        width = self._get_current_width()
+        area = np.pi * (length/2) * (width/2)
+
+        return area
 
     def _contract_model(self) -> float:
         # Simple model for contraction over time
@@ -191,7 +241,7 @@ class SalpRobotEnv(gym.Env):
     
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
     
-    def __init__(self, render_mode: Optional[str] = None, width: int = 800, height: int = 600):
+    def __init__(self, render_mode: Optional[str] = None, width: int = 800, height: int = 600, robot: Optional[Robot] = None):
         super().__init__()
         
         # Environment parameters
@@ -199,31 +249,13 @@ class SalpRobotEnv(gym.Env):
         self.height = height
         self.tank_margin = 50
         
-        # SALP robot parameters
-        self.base_radius = 30  # Base body radius (circle at rest)
-        self.max_thrust_force = 100  # Thrust per expansion
-        self.drag_coefficient = 0.98  # Underwater drag
-        
-        # Constant surface area parameters
-        # Circle surface area = 2πr, Ellipse surface area ≈ π(a + b)
-        # For constant surface area: 2πr = π(a + b), so a + b = 2r
-        self.base_surface_area = 2 * math.pi * self.base_radius
-        
-        # Nozzle parameters
-        self.max_nozzle_angle = math.pi / 3  # ±60 degrees nozzle steering
-        self.nozzle_response_rate = 0.05  # How fast nozzle moves
-        
-        # Realistic breathing cycle parameters (much slower)
-        self.inhale_duration = 120  # 2 seconds at 60fps
-        self.exhale_duration = 150  # 2.5 seconds at 60fps
-        self.rest_duration = 60    # 1 second rest between cycles
-        
         # Pygame setup
         self.render_mode = render_mode
         self.screen = None
         self.clock = None
         
         # Robot state
+        self.robot = robot
         self.robot_pos = np.array([width/2, height/2], dtype=float)
         self.robot_velocity = np.array([0.0, 0.0], dtype=float)
         self.robot_angle = 0.0  # Body orientation (changes slowly due to physics)
@@ -250,6 +282,7 @@ class SalpRobotEnv(gym.Env):
         )
         
         # Observation space: [pos_x, pos_y, vel_x, vel_y, body_angle, angular_vel, body_size, breathing_phase, water_volume, nozzle_angle]
+        # TODO: pull some of these limits out from the robot 
         self.observation_space = spaces.Box(
             low=np.array([0, 0, -10, -10, -math.pi, -0.1, 0.5, 0, 0, -1]),
             high=np.array([width, height, 10, 10, math.pi, 0.1, 2.0, 2, 1, 1]),
@@ -285,30 +318,10 @@ class SalpRobotEnv(gym.Env):
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         # Check if we're in forced breathing mode (passed from environment)
         forced_breathing = getattr(self, 'forced_breathing', False)
-        
-        if forced_breathing:
-            # FORCED BREATHING MODE: Only nozzle control
-            nozzle_direction = float(action[0])  # -1 to 1 (single action)
-            # Force automatic breathing cycle
-            self.is_inhaling = self._get_forced_breathing_state()
-        else:
-            # NORMAL MODE: Full control
-            inhale_control = float(action[0])  # 0 to 1
-            nozzle_direction = float(action[1])  # -1 to 1
-            self.is_inhaling = inhale_control > 0.5
-        
-        # Update control inputs
-        self.target_nozzle_angle = nozzle_direction * self.max_nozzle_angle
-        
-        # Update nozzle position (smooth movement)
-        self._update_nozzle()
-        
-        # Update breathing cycle
-        self._update_breathing_cycle()
-        
-        # Update physics
-        self._update_physics()
-        
+
+        self.robot.set_control(action)
+        self.robot.step()
+
         # Calculate reward
         reward = self._calculate_reward()
         
@@ -320,194 +333,6 @@ class SalpRobotEnv(gym.Env):
         info = self._get_info()
         
         return observation, reward, done, truncated, info
-    
-    def _get_forced_breathing_state(self) -> bool:
-        """Determine breathing state for forced breathing mode."""
-        # Create automatic breathing cycle based on timer
-        cycle_length = self.inhale_duration + self.exhale_duration + self.rest_duration
-        cycle_position = self.breathing_timer % cycle_length
-        
-        if cycle_position < self.inhale_duration:
-            return True  # Inhaling
-        else:
-            return False  # Exhaling or resting
-    
-    def _update_nozzle(self):
-        """Update nozzle angle smoothly."""
-        angle_diff = self.target_nozzle_angle - self.nozzle_angle
-        if abs(angle_diff) > self.nozzle_response_rate:
-            if angle_diff > 0:
-                self.nozzle_angle += self.nozzle_response_rate
-            else:
-                self.nozzle_angle -= self.nozzle_response_rate
-        else:
-            self.nozzle_angle = self.target_nozzle_angle
-        
-        # Clamp nozzle angle
-        self.nozzle_angle = max(-self.max_nozzle_angle, 
-                              min(self.max_nozzle_angle, self.nozzle_angle))
-    
-    def _update_breathing_cycle(self):
-        """Update the breathing cycle with correct sequence: ellipsoid → sphere → ellipsoid."""
-        if self.breathing_phase == "rest":
-            # At rest: ellipsoid shape (natural resting state)
-            self.body_radius = self.base_radius
-            # Start with moderate ellipsoid shape
-            self.ellipse_a = self.base_radius * 1.3  # Slightly elongated
-            self.ellipse_b = self.base_radius * 0.8  # Slightly compressed
-            
-            if self.is_inhaling:
-                # Start inhaling
-                self.breathing_phase = "inhaling"
-                self.breathing_timer = 0
-            
-        elif self.breathing_phase == "inhaling":
-            if self.is_inhaling and self.breathing_timer < self.inhale_duration:
-                # Continue inhaling - body becomes more spherical (filling with water)
-                self.breathing_timer += 1
-                progress = self.breathing_timer / self.inhale_duration
-                
-                # Transition from ellipsoid to sphere as water fills
-                # Start: ellipse_a = 1.3*r, ellipse_b = 0.8*r
-                # End: ellipse_a = 1.1*r, ellipse_b = 1.1*r (slightly larger sphere)
-                start_a = self.base_radius * 1.3
-                start_b = self.base_radius * 0.8
-                end_a = self.base_radius * 1.1  # Slightly expanded sphere
-                end_b = self.base_radius * 1.1
-                
-                self.ellipse_a = start_a + (end_a - start_a) * progress
-                self.ellipse_b = start_b + (end_b - start_b) * progress
-                
-                self.water_volume = progress
-                
-            else:
-                # Stop inhaling (either released early or reached max inhale)
-                if self.water_volume > 0.05:  # Only exhale if we inhaled some water
-                    self.breathing_phase = "exhaling"
-                    self.breathing_timer = 0
-                    # Scale exhale duration based on how much water was inhaled
-                    self.current_exhale_duration = int(self.exhale_duration * max(self.water_volume, 0.3))
-                else:
-                    # Return to rest if barely inhaled (early release with minimal water)
-                    self.breathing_phase = "rest"
-                    self.breathing_timer = 0
-                    self.water_volume = 0.0
-        
-        elif self.breathing_phase == "exhaling":
-            self.breathing_timer += 1
-            # Use scaled exhale duration based on water volume
-            exhale_duration = getattr(self, 'current_exhale_duration', self.exhale_duration)
-            progress = self.breathing_timer / exhale_duration
-            
-            if progress <= 1.0:
-                # Exhale - body transitions from sphere back to ellipsoid (expelling water)
-                # Start: sphere (ellipse_a = 1.1*r, ellipse_b = 1.1*r)
-                # End: ellipsoid (ellipse_a = 1.3*r, ellipse_b = 0.8*r)
-                start_a = self.base_radius * 1.1
-                start_b = self.base_radius * 1.1
-                end_a = self.base_radius * 1.3
-                end_b = self.base_radius * 0.8
-                
-                self.ellipse_a = start_a + (end_a - start_a) * progress
-                self.ellipse_b = start_b + (end_b - start_b) * progress
-                
-                # Apply thrust during early expansion, scaled by water volume
-                if 0.1 <= progress <= 0.5:
-                    self._apply_jet_thrust()
-                
-                # Reduce water volume
-                self.water_volume = max(0, self.water_volume * (1.0 - progress))
-                
-            else:
-                # Exhale complete, return to rest
-                self.breathing_phase = "rest"
-                self.breathing_timer = 0
-                self.water_volume = 0.0
-    
-    def _apply_jet_thrust(self):
-        """Apply jet thrust through steerable nozzle with improved moment physics."""
-        # Calculate thrust based on water volume and expansion rate
-        thrust_magnitude = self.max_thrust_force * self.water_volume * 0.4
-        
-        # Thrust direction: nozzle points backward, thrust pushes forward
-        thrust_angle = self.robot_angle - self.nozzle_angle
-        
-        thrust_x = math.cos(thrust_angle) * thrust_magnitude
-        thrust_y = math.sin(thrust_angle) * thrust_magnitude
-        
-        # Apply thrust to velocity
-        self.robot_velocity[0] += thrust_x * 0.012
-        self.robot_velocity[1] += thrust_y * 0.012
-        
-        # Torque physics: angled nozzle creates rotation
-        # When nozzle points right (+), robot should turn left (-)
-        primary_torque = -self.nozzle_angle * thrust_magnitude * 0.0002
-        
-        # Moment arm effect - thrust applied at rear creates rotation
-        moment_arm = max(self.ellipse_a, self.ellipse_b) * 0.7
-        thrust_perpendicular = thrust_magnitude * math.sin(-self.nozzle_angle)
-        moment_torque = thrust_perpendicular * moment_arm * 0.00005
-        
-        # Body shape effect during morphing
-        shape_torque = -self.nozzle_angle * thrust_magnitude * self.water_volume * 0.00003
-        
-        # Combine torque effects
-        total_torque = primary_torque + moment_torque + shape_torque
-        self.robot_angular_velocity += total_torque
-        
-        # Thrust vectoring effect - angled nozzle creates side force
-        side_thrust_angle = thrust_angle + math.pi/2
-        side_thrust_magnitude = thrust_magnitude * abs(self.nozzle_angle) * 0.3
-        
-        side_thrust_x = math.cos(side_thrust_angle) * side_thrust_magnitude
-        side_thrust_y = math.sin(side_thrust_angle) * side_thrust_magnitude
-        
-        self.robot_velocity[0] += side_thrust_x * 0.008
-        self.robot_velocity[1] += side_thrust_y * 0.008
-        
-        # Add slight random variation for realism
-        noise_angle = thrust_angle + (np.random.random() - 0.5) * 0.05
-        noise_force = thrust_magnitude * 0.04
-        self.robot_velocity[0] += math.cos(noise_angle) * noise_force * 0.002
-        self.robot_velocity[1] += math.sin(noise_angle) * noise_force * 0.002
-    
-    def _update_physics(self):
-        """Update robot physics with realistic underwater dynamics."""
-        # Apply drag
-        self.robot_velocity *= self.drag_coefficient
-        self.robot_angular_velocity *= 0.95
-        
-        # Update position
-        self.robot_pos += self.robot_velocity
-        
-        # Update body angle (changes slowly due to momentum and thrust)
-        self.robot_angle += self.robot_angular_velocity
-        
-        # Normalize angle
-        while self.robot_angle > math.pi:
-            self.robot_angle -= 2 * math.pi
-        while self.robot_angle < -math.pi:
-            self.robot_angle += 2 * math.pi
-        
-        # Keep robot within bounds (bounce off walls)
-        margin = self.tank_margin + max(self.ellipse_a, self.ellipse_b)
-        if self.robot_pos[0] < margin:
-            self.robot_pos[0] = margin
-            self.robot_velocity[0] = abs(self.robot_velocity[0]) * 0.4
-            self.robot_angular_velocity *= 0.7
-        elif self.robot_pos[0] > self.width - margin:
-            self.robot_pos[0] = self.width - margin
-            self.robot_velocity[0] = -abs(self.robot_velocity[0]) * 0.4
-            self.robot_angular_velocity *= 0.7
-        
-        if self.robot_pos[1] < margin:
-            self.robot_pos[1] = margin
-            self.robot_velocity[1] = abs(self.robot_velocity[1]) * 0.4
-            self.robot_angular_velocity *= 0.7
-        elif self.robot_pos[1] > self.height - margin:
-            self.robot_pos[1] = self.height - margin
-            self.robot_velocity[1] = -abs(self.robot_velocity[1]) * 0.4
-            self.robot_angular_velocity *= 0.7
     
     def _calculate_reward(self) -> float:
         """Calculate reward based on realistic movement and efficiency."""
@@ -709,5 +534,14 @@ class SalpRobotEnv(gym.Env):
 
 if __name__ == "__main__":
     
-    robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.1)
-    robot._test_compression_speed()
+    robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.1, max_contraction=0.1, nozzle_area=0.0001)
+    env = SalpRobotEnv(render_mode="human", robot=robot)
+    obs, info = env.reset()
+    
+    done = False
+    while not done:
+        action = env.action_space.sample()
+        obs, reward, done, truncated, info = env.step(action)
+        env.render()    
+    env.close()
+    
