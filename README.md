@@ -2,6 +2,22 @@
 
 Bio-inspired soft underwater robot simulation based on research from the University of Pennsylvania Sung Robotics Lab. This project implements SALP (Salp-inspired Approach to Low-energy Propulsion) robots in a Gymnasium environment for reinforcement learning research.
 
+## 🚀 Quick Start
+
+**Want to see it in action right now?**
+
+```bash
+# Watch a trained AI agent control the SALP robot
+python quickstart/watch_agent.py
+
+# Or try manual control to understand the physics
+python scripts/utilities/salp_robot.py
+```
+
+📖 **[Full Quick Start Guide](quickstart/README.md)** - Get started in 60 seconds!
+
+---
+
 ## Overview
 
 This repository contains implementations of bio-inspired underwater robots that mimic the locomotion of marine salps - barrel-shaped invertebrates that swim via jet propulsion through rhythmic body contractions and expansions.
@@ -60,12 +76,33 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Run SALP Robot Demo
+### 🎬 Watch Trained Agents (Quickest!)
+
 ```bash
-python examples/demo.py
+# Auto-detect and watch your best trained model
+python quickstart/watch_agent.py
+
+# List all available models
+python quickstart/list_models.py
+
+# Manual control (understand the physics)
+python quickstart/examples/interactive_control.py
 ```
 
-Or from utilities:
+See **[quickstart/README.md](quickstart/README.md)** for complete documentation.
+
+### 🏋️ Train New Agents
+
+```bash
+# Interactive training
+python examples/demo.py train
+
+# Continuous visual training
+python examples/demo.py train --continuous
+```
+
+### 🎮 Manual Control Demo
+
 ```bash
 python scripts/utilities/salp_robot.py
 ```
@@ -131,6 +168,11 @@ This simulation is designed for:
 
 ```
 GRASP_LAB_SALP/
+├── quickstart/            # 🚀 Quick-start scripts (START HERE!)
+│   ├── README.md          # Quick-start guide
+│   ├── watch_agent.py     # Watch trained models
+│   ├── list_models.py     # List available models
+│   └── examples/          # Zero-config examples
 ├── src/salp/              # Main package (installable)
 │   ├── agents/            # Agent implementations (SAC, GAIL, etc.)
 │   ├── environments/      # Gymnasium environments
