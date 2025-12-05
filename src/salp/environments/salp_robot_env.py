@@ -19,14 +19,14 @@ class Robot():
     # 2. scale the actions from RL inputs to robot control inputs
     # 3. normalize the observation space numbers
     #  
-    phase = ["contract", "release", "coast"]
+    phase = ["refill", "jet", "coast", "rest"]
 
     def __init__(self, dry_mass: float, init_length: float, init_width: float, max_contraction: float, nozzle_area: float):
         self.dry_mass = dry_mass # kg
         self.init_length = init_length # meters
         self.init_width = init_width # meters
         self.max_contraction = max_contraction  # max contraction length
-        self.state = "rest"
+        self.state = self.phase[3]  # initial state is rest
         self.contraciton = 0.0  # contraction level
         self.nozzle_angle = 0.0  # current angle of nozzle
         self.cycle = 0
@@ -42,6 +42,7 @@ class Robot():
         self.density = 0  # kg/m^3, density of water
         self.contract_time = 0.0
         self.release_time = 0.0
+        self.coast_time = 0.0
 
         self._contract_rate = 0.0
         self._release_rateS = 0.0
@@ -49,10 +50,11 @@ class Robot():
     def set_environment(self, density: float):
         self.density = density
 
-    def set_control(self, contraction: float, angle: float):
+    def set_control(self, contraction: float, coast_time: float, angle: float):
 
         self.contraciton = contraction
-        print("contraction set to:", self.contraciton)
+        self.coast_time = coast_time
+        # print("contraction set to:", self.contraciton)
         self.nozzle_angle = angle
         self.cycle += 1
 
@@ -65,8 +67,10 @@ class Robot():
             self.state = self.phase[0]  # contract
         elif self.cycle_time < self.contract_time + self.release_time:
             self.state = self.phase[1]  # release
-        else:
+        elif self.cycle_time < self.contract_time + self.release_time + self.coast_time:
             self.state = self.phase[2]  # coast
+        else:
+            self.state = self.phase[3]  # reset to contract
         return self.state
 
     def step(self):
@@ -76,8 +80,15 @@ class Robot():
             self.contract() 
         elif self.state == self.phase[1]:  # release
             self.release() 
-        else:
+        elif self.state == self.phase[2]:  # coast
             self.coast()
+        else:
+            pass  # rest
+    
+    def step_through_cycle(self):
+        total_cycle_time = self.contract_time + self.release_time + self.coast_time
+        while self.cycle_time < total_cycle_time:
+            self.step()
 
     def contract(self):
         # computes
@@ -207,9 +218,9 @@ class Robot():
         # Simple model for contraction over time
         self._contract_rate = 0.06/3  # m/s
         time = self.contraciton / self._contract_rate
-        print("contraction rate:", self._contract_rate)
-        print("contraction time:", time)
-        print("contraction:", self.contraciton)
+        # print("contraction rate:", self._contract_rate)
+        # print("contraction time:", time)
+        # print("contraction:", self.contraciton)
         return time
 
     def _release_model(self) -> float:
@@ -294,8 +305,8 @@ class SalpRobotEnv(gym.Env):
         
         # Action space: [inhale_control (0/1), nozzle_direction (-1 to 1)]
         self.action_space = spaces.Box(
-            low=np.array([0.0, -1.0]),
-            high=np.array([1.0, 1.0]),
+            low=np.array([0.0, 0.0, -1.0]),
+            high=np.array([1.0, 1.0, 1.0]),
             dtype=np.float32
         )
         
@@ -337,8 +348,8 @@ class SalpRobotEnv(gym.Env):
         # Check if we're in forced breathing mode (passed from environment)
         forced_breathing = getattr(self, 'forced_breathing', False)
 
-        self.robot.set_control(action[0], action[1])  # Placeholder for nozzle angle control
-        self.robot.step()
+        self.robot.set_control(action[0], action[1], action[2])  # Placeholder for nozzle angle control
+        self.robot.step_through_cycle()
 
         # Calculate reward
         reward = self._calculate_reward()
@@ -445,11 +456,11 @@ class SalpRobotEnv(gym.Env):
         
         # Body color based on breathing phase
         phase_colors = {
-            "rest": (100, 140, 180),
-            "inhaling": (70, 100, 150),
-            "exhaling": (150, 100, 70)
+            "refill": (100, 140, 180),
+            "jet": (70, 100, 150),
+            "coast": (150, 100, 70)
         }
-        body_color = phase_colors.get(self.robot.get_state, (100, 140, 180))
+        body_color = phase_colors.get(self.robot.get_state(), (100, 140, 180))
         
         # Draw morphing body
         ellipse_width = scale*int(self.robot.get_current_length())
@@ -563,8 +574,10 @@ if __name__ == "__main__":
     
     done = False
     while not done:
-        action = [0.06, 0.0]  # inhale with no nozzle steering
+        action = [0.06, 0.0, 0.0]  # inhale with no nozzle steering
+        # For every step in the environment, there are multiple internal robot steps
         obs, reward, done, truncated, info = env.step(action)
+        print(env.robot.cycle_time)
         env.render()    
     env.close()
     
