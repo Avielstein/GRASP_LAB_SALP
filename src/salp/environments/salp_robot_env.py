@@ -48,7 +48,19 @@ class Robot():
         self._release_rateS = 0.0
     
     def set_environment(self, density: float):
+
         self.density = density
+
+    def reset(self):
+
+        self.time = 0.0
+        self.cycle_time = 0.0
+        self.positions = np.array([400, 300])  # x, y positions
+        self.angle = 0  #yaw
+        self.velocities = np.zeros(2)  # x, y velocities
+        self.angular_velocity = 0.0  # yaw rate
+        self.previous_water_volume = 0.0
+        self.cycle = 0
 
     def set_control(self, contraction: float, coast_time: float, angle: float):
 
@@ -57,6 +69,7 @@ class Robot():
         # print("contraction set to:", self.contraciton)
         self.nozzle_angle = angle
         self.cycle += 1
+        self.cycle_time = 0.0
 
         self.contract_time = self._contract_model()
         self.release_time = self._release_model() 
@@ -87,8 +100,16 @@ class Robot():
     
     def step_through_cycle(self):
         total_cycle_time = self.contract_time + self.release_time + self.coast_time
+        positions_history = []
+        length_history = []
+        width_history = []
         while self.cycle_time < total_cycle_time:
             self.step()
+            positions_history.append(self.positions)
+            length_history.append(self.get_current_length())
+            width_history.append(self.get_current_width())
+        
+        return np.array(positions_history), np.array(length_history), np.array(width_history)
 
     def contract(self):
         # computes
@@ -285,23 +306,6 @@ class SalpRobotEnv(gym.Env):
         
         # # Robot state
         self.robot = robot
-        # self.robot_pos = np.array([width/2, height/2], dtype=float)
-        # self.robot_velocity = np.array([0.0, 0.0], dtype=float)
-        # self.robot_angle = 0.0  # Body orientation (changes slowly due to physics)
-        # self.robot_angular_velocity = 0.0
-        
-        # # Nozzle state
-        # self.nozzle_angle = 0.0  # Relative to body orientation (-max_nozzle_angle to +max_nozzle_angle)
-        # self.target_nozzle_angle = 0.0
-        
-        # # Breathing state
-        # self.breathing_phase = "rest"  # "rest", "inhaling", "exhaling"
-        # self.breathing_timer = 0
-        # self.body_radius = self.base_radius  # Current body radius
-        # self.ellipse_a = self.base_radius    # Semi-major axis for ellipse
-        # self.ellipse_b = self.base_radius    # Semi-minor axis for ellipse
-        # self.is_inhaling = False  # True when space is held down
-        # self.water_volume = 0.0  # Amount of water inhaled (0-1)
         
         # Action space: [inhale_control (0/1), nozzle_direction (-1 to 1)]
         self.action_space = spaces.Box(
@@ -317,39 +321,46 @@ class SalpRobotEnv(gym.Env):
             high=np.array([width, height, 10, 10, math.pi, 0.1, 2.0, 2, 1, 1]),
             dtype=np.float32
         )
-        
+        # Movement history for the current action/breathing cycle (robot-frame meters)
+        self.cycle_positions = []
+        self.cycle_lengths = []
+        self.cycle_widths = []
+        self._history_color = (255, 200, 0)
+
         self.reset()
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         super().reset(seed=seed)
         
         # Reset robot to center
-        self.robot_pos = np.array([self.width/2, self.height/2], dtype=float)
-        self.robot_velocity = np.array([0.0, 0.0], dtype=float)
-        self.robot_angle = 0.0
-        self.robot_angular_velocity = 0.0
-        
-        # Reset nozzle
-        self.nozzle_angle = 0.0
-        self.target_nozzle_angle = 0.0
-        
-        # Reset breathing state
-        self.breathing_phase = "rest"
-        self.breathing_timer = 0
+        self.robot.reset()
+       
         # self.body_radius = self.base_radius  # Current body radius
         self.ellipse_a = self.robot.get_current_length()    # Semi-major axis for ellipse
         self.ellipse_b = self.robot.get_current_width()    # Semi-minor axis for ellipse
-        self.is_inhaling = False
-        self.water_volume = 0.0
-        
+
+        # clear any previously recorded cycle history
+        self.cycle_positions = []
+        self.cycle_lengths = []
+        self.cycle_widths = []
+
         return self._get_observation(), {}
     
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        # Check if we're in forced breathing mode (passed from environment)
-        forced_breathing = getattr(self, 'forced_breathing', False)
+        
+        self.robot.set_control(action[0], action[1], action[2])  # contraction, coast_time, nozzle angle
+        position_history, length_history, width_history = self.robot.step_through_cycle()
 
-        self.robot.set_control(action[0], action[1], action[2])  # Placeholder for nozzle angle control
-        self.robot.step_through_cycle()
+        # store the most recent breathing-cycle histories (meters)
+        try:
+            # convert to Python lists for easier use in render
+            self.cycle_positions = [np.array(p) for p in position_history]
+            self.cycle_lengths = [float(l) for l in length_history]
+            self.cycle_widths = [float(w) for w in width_history]
+        except Exception:
+            self.cycle_positions = []
+            self.cycle_lengths = []
+            self.cycle_widths = []
 
         # Calculate reward
         reward = self._calculate_reward()
@@ -359,74 +370,68 @@ class SalpRobotEnv(gym.Env):
         truncated = False
         
         observation = self._get_observation()
-        info = self._get_info()
+        # info = self._get_info()
+        info = {
+            'position_history': position_history,
+            'length_history': length_history,
+            'width_history': width_history
+        }
         
         return observation, reward, done, truncated, info
     
     def _calculate_reward(self) -> float:
         """Calculate reward based on realistic movement and efficiency."""
         # Reward for smooth movement
-        speed = math.sqrt(self.robot_velocity[0]**2 + self.robot_velocity[1]**2)
-        movement_reward = min(speed * 0.08, 0.6)
+        # speed = math.sqrt(self.robot_velocity[0]**2 + self.robot_velocity[1]**2)
+        # movement_reward = min(speed * 0.08, 0.6)
         
-        # Reward for efficient breathing (not too frequent)
-        breathing_efficiency = 0.15 if self.breathing_phase == "rest" else 0.08
+        # # Reward for efficient breathing (not too frequent)
+        # breathing_efficiency = 0.15 if self.breathing_phase == "rest" else 0.08
         
-        # Small penalty for excessive nozzle movement (energy cost)
-        nozzle_penalty = abs(self.nozzle_angle) * 0.02
+        # # Small penalty for excessive nozzle movement (energy cost)
+        # nozzle_penalty = abs(self.nozzle_angle) * 0.02
         
-        # Small reward for staying in bounds
-        bounds_reward = 0.05
+        # # Small reward for staying in bounds
+        # bounds_reward = 0.05
         
-        return movement_reward + breathing_efficiency + bounds_reward - nozzle_penalty
+        return 0
     
     def _get_observation(self) -> np.ndarray:
         """Get current observation."""
         # Map breathing phase to number
-        phase_map = {"rest": 0, "inhaling": 1, "exhaling": 2}
-        phase_num = phase_map.get(self.breathing_phase, 0)
         
-        return np.array([
-            self.robot_pos[0] / self.width,  # Normalized position
-            self.robot_pos[1] / self.height,
-            self.robot_velocity[0] / 5.0,  # Normalized velocity
-            self.robot_velocity[1] / 5.0,
-            self.robot_angle / math.pi,  # Normalized body angle
-            self.robot_angular_velocity / 0.1,  # Normalized angular velocity
-            max(self.ellipse_a, self.ellipse_b),  # Normalized body size
-            phase_num / 2.0,  # Normalized breathing phase
-            self.water_volume,  # Water volume (0-1)
-            self.nozzle_angle  # Normalized nozzle angle
-        ], dtype=np.float32)
+        # return np.array([
+        #     self.robot_pos[0] / self.width,  # Normalized position
+        #     self.robot_pos[1] / self.height,
+        #     self.robot_velocity[0] / 5.0,  # Normalized velocity
+        #     self.robot_velocity[1] / 5.0,
+        #     self.robot_angle / math.pi,  # Normalized body angle
+        #     self.robot_angular_velocity / 0.1,  # Normalized angular velocity
+        #     max(self.ellipse_a, self.ellipse_b),  # Normalized body size
+        #     phase_num / 2.0,  # Normalized breathing phase
+        #     self.water_volume,  # Water volume (0-1)
+        #     self.nozzle_angle  # Normalized nozzle angle
+        # ], dtype=np.float32)
+        return 0
     
     def _get_info(self) -> Dict:
         """Get additional information."""
         return {
-            'robot_position': tuple(self.robot_pos),
-            'robot_velocity': tuple(self.robot_velocity),
-            'robot_angle': self.robot_angle,
-            'nozzle_angle': self.nozzle_angle,
-            'ellipse_a': self.ellipse_a,
-            'ellipse_b': self.ellipse_b,
-            # 'body_radius': self.body_radius,
-            'breathing_phase': self.breathing_phase,
-            'water_volume': self.water_volume,
-            'breathing_timer': self.breathing_timer
+            "position_history": self.cycle_positions,
+            "length_history": self.cycle_lengths,
+            "width_history": self.cycle_widths
         }
-    
-    def render(self):
-        """Render the environment."""
-        if self.render_mode is None:
-            return
-        
+
+    # -- Render helper methods -------------------------------------------------
+    def _ensure_screen(self):
         if self.screen is None:
             pygame.init()
             pygame.display.init()
-            
+
             if self.width <= 0 or self.height <= 0:
                 self.width = 800
                 self.height = 600
-            
+
             if self.render_mode == "human":
                 try:
                     self.screen = pygame.display.set_mode((int(self.width), int(self.height)))
@@ -436,122 +441,207 @@ class SalpRobotEnv(gym.Env):
                     self.width, self.height = 640, 480
                     self.screen = pygame.display.set_mode((self.width, self.height))
             else:
-                self.screen = pygame.Surface((int(self.width), int(self.height)))
-        
+                # we are not using the image to learn for now 
+                # self.screen = pygame.Surface((int(self.width), int(self.height)))\
+                pass 
+
         if self.clock is None:
             self.clock = pygame.time.Clock()
-        
+
+    def _draw_background_and_tank(self):
         # Clear screen with deep water color
         self.screen.fill((10, 25, 50))
-        
+
         # Draw tank boundaries
-        pygame.draw.rect(self.screen, (30, 60, 100), 
-                        (self.tank_margin, self.tank_margin, 
+        pygame.draw.rect(self.screen, (0, 0, 0),
+                        (self.tank_margin, self.tank_margin,
                          self.width - 2*self.tank_margin, self.height - 2*self.tank_margin), 3)
-        
-        # need to scale everything up by 100 times so that the robot is in a 8 x 6 meter tank
-        scale = 100
-        # Draw robot (center of ellipse at robot_pos)
-        robot_x, robot_y = int(self.robot_pos[0]), int(self.robot_pos[1])
-        
-        # Body color based on breathing phase
+
+    def _draw_history(self, scale: float, robot_x: int, robot_y: int):
+        # Draw the recorded movement history for the most recent cycle (if any).
+        # Represent the robot at sampled times by ellipses sized by length/width.
+        if len(self.cycle_positions) == 0:
+            return
+        pts = []
+        n = len(self.cycle_positions)
+        # sample up to ~40 points for performance/readability
+        sample_step = max(1, n // 40)
+
+        # detect whether positions are already in screen pixels (Robot.reset currently sets pixels)
+        max_coord = 0.0
+        for p in self.cycle_positions:
+            try:
+                max_coord = max(max_coord, abs(float(p[0])), abs(float(p[1])))
+            except Exception:
+                continue
+
+        positions_in_pixels = max_coord > 50.0
+
+        for i in range(0, n, sample_step):
+            p = self.cycle_positions[i]
+            if positions_in_pixels:
+                px = int(p[0])
+                py = int(p[1])
+            else:
+                px = robot_x + int(float(p[0]) * scale)
+                py = robot_y + int(float(p[1]) * scale)
+            pts.append((px, py, i))
+
+        # draw connecting line
+        line_pts = [(x, y) for x, y, _ in pts]
+        if len(line_pts) > 1:
+            pygame.draw.lines(self.screen, self._history_color, False, line_pts, 2)
+
+        # draw sampled body ellipses at each point using corresponding length/width
+        for px, py, idx in pts:
+            # get nearest history index
+            li = min(idx, len(self.cycle_lengths) - 1) if len(self.cycle_lengths) > 0 else 0
+            wi = min(idx, len(self.cycle_widths) - 1) if len(self.cycle_widths) > 0 else 0
+            try:
+                body_len = float(self.cycle_lengths[li])
+                body_wid = float(self.cycle_widths[wi])
+            except Exception:
+                body_len = float(self.robot.init_length)
+                body_wid = float(self.robot.init_width)
+
+            # decide whether body_len/body_wid are in meters or already pixels
+            if body_len > 10.0:
+                ew = max(4, int(body_len))
+            else:
+                ew = max(4, int(scale * body_len))
+
+            if body_wid > 10.0:
+                eh = max(4, int(body_wid))
+            else:
+                eh = max(4, int(scale * body_wid))
+
+            # create small transparent surface for ellipse
+            try:
+                ell_surf = pygame.Surface((ew, eh), pygame.SRCALPHA)
+                color = (*self._history_color, 100)  # add alpha
+                pygame.draw.ellipse(ell_surf, color, (0, 0, ew, eh))
+                rect = ell_surf.get_rect(center=(px, py))
+                self.screen.blit(ell_surf, rect)
+            except Exception:
+                # fallback: small circle
+                pygame.draw.circle(self.screen, self._history_color, (px, py), 3)
+
+    def _draw_body(self, scale: float, robot_x: int, robot_y: int):
+        # Body color based on robot internal state
         phase_colors = {
             "refill": (100, 140, 180),
             "jet": (70, 100, 150),
-            "coast": (150, 100, 70)
+            "coast": (150, 100, 70),
+            "rest": (100, 140, 180)
         }
         body_color = phase_colors.get(self.robot.get_state(), (100, 140, 180))
-        
+
         # Draw morphing body
-        ellipse_width = scale*int(self.robot.get_current_length())
-        ellipse_height = scale*int(self.robot.get_current_width())
-        
+        ellipse_width = max(2, int(scale * float(self.robot.get_current_length())))
+        ellipse_height = max(2, int(scale * float(self.robot.get_current_width())))
+
         ellipse_surf = pygame.Surface((ellipse_width, ellipse_height), pygame.SRCALPHA)
         pygame.draw.ellipse(ellipse_surf, body_color, (0, 0, ellipse_width, ellipse_height))
 
-        # TODO: implement robot body rotation 
-        rotated_surf = pygame.transform.rotate(ellipse_surf, -math.degrees(self.robot_angle))
+        # Robot body rotation uses robot.angle
+        rotated_surf = pygame.transform.rotate(ellipse_surf, -math.degrees(self.robot.angle))
         rect = rotated_surf.get_rect(center=(robot_x, robot_y))
         self.screen.blit(rotated_surf, rect)
-        
-        # # Draw body outline (no need to draw the circle outline)
-        # outline_radius = int(max(self.ellipse_a, self.ellipse_b))
-        # pygame.draw.circle(self.screen, (60, 80, 120), (robot_x, robot_y), outline_radius, 2)
-        
-        # Draw front indicator
-        front_distance = max(self.ellipse_a, self.ellipse_b) * 0.8
-        front_x = robot_x + math.cos(self.robot_angle) * front_distance
-        front_y = robot_y + math.sin(self.robot_angle) * front_distance
-        pygame.draw.circle(self.screen, (255, 255, 255), (int(front_x), int(front_y)), 4)
-        
-        # Draw steerable nozzle
-        # TODO: implement nozzle steering dynamics
-        back_distance = max(self.ellipse_a, self.ellipse_b) * 0.9
-        back_x = robot_x + math.cos(self.robot_angle + math.pi) * back_distance
-        back_y = robot_y + math.sin(self.robot_angle + math.pi) * back_distance
-        
-        nozzle_world_angle = self.robot_angle + math.pi + self.nozzle_angle
-        nozzle_length = 15
-        nozzle_end_x = back_x + math.cos(nozzle_world_angle) * nozzle_length
-        nozzle_end_y = back_y + math.sin(nozzle_world_angle) * nozzle_length
-        
-        pygame.draw.line(self.screen, (200, 200, 100), 
-                        (int(back_x), int(back_y)), (int(nozzle_end_x), int(nozzle_end_y)), 4)
-        
-        # Draw water jet during exhale
-        if self.breathing_phase == "exhaling":
-            num_particles = 8
-            for i in range(num_particles):
-                base_distance = nozzle_length + 5 + i * 4
-                curve_factor = abs(self.nozzle_angle) * 0.5
-                curve_offset = curve_factor * (i * 0.3)
-                
-                perpendicular_angle = nozzle_world_angle + math.pi/2
-                if self.nozzle_angle > 0:
-                    curve_offset = -curve_offset
-                
-                straight_x = back_x + math.cos(nozzle_world_angle) * base_distance
-                straight_y = back_y + math.sin(nozzle_world_angle) * base_distance
-                
-                curved_x = straight_x + math.cos(perpendicular_angle) * curve_offset
-                curved_y = straight_y + math.sin(perpendicular_angle) * curve_offset
-                
-                spread_variation = (i - num_particles/2) * 0.08
-                spread_x = curved_x + math.cos(perpendicular_angle) * spread_variation * 3
-                spread_y = curved_y + math.sin(perpendicular_angle) * spread_variation * 3
-                
-                particle_size = max(1, 5 - i)
-                blue_intensity = max(100, 200 - i * 15)
-                particle_color = (80, 120, blue_intensity)
-                
-                pygame.draw.circle(self.screen, particle_color, 
-                                 (int(spread_x), int(spread_y)), particle_size)
-        
-        # # Draw velocity vector (no need for this right now)
-        # speed = math.sqrt(self.robot_velocity[0]**2 + self.robot_velocity[1]**2)
-        # if speed > 0.5:
-        #     vel_scale = 8
-        #     vel_end_x = robot_x + self.robot_velocity[0] * vel_scale
-        #     vel_end_y = robot_y + self.robot_velocity[1] * vel_scale
-        #     pygame.draw.line(self.screen, (0, 255, 150), 
-        #                    (robot_x, robot_y), (int(vel_end_x), int(vel_end_y)), 2)
-        
-        # UI information
-        if hasattr(pygame, 'font') and pygame.font.get_init():
-            font = pygame.font.Font(None, 24)
-            info_lines = [
-                "SALP Robot - Steerable Nozzle",
-                f"Phase: {self.breathing_phase.title()}",
-                f"Body Size: {max(self.ellipse_a, self.ellipse_b):.1f}",
-                f"Water: {self.water_volume:.2f}",
-                f"Speed: {self.robot.velocities[0]:.1f}",
-                f"Nozzle: {math.degrees(self.nozzle_angle):.0f}°",
-            ]
-            
-            for i, line in enumerate(info_lines):
-                text = font.render(line, True, (255, 255, 255))
-                self.screen.blit(text, (10, 10 + i * 25))
-        
+
+    # def _draw_nozzle_and_jet(self, scale: float, robot_x: int, robot_y: int):
+    #     # Draw front indicator
+    #     front_distance = max(self.ellipse_a, self.ellipse_b) * 0.8
+    #     front_x = robot_x + math.cos(self.robot.angle) * front_distance
+    #     front_y = robot_y + math.sin(self.robot.angle) * front_distance
+    #     pygame.draw.circle(self.screen, (255, 255, 255), (int(front_x), int(front_y)), 4)
+
+    #     # Draw steerable nozzle
+    #     back_distance = max(self.ellipse_a, self.ellipse_b) * 0.9
+    #     back_x = robot_x + math.cos(self.robot.angle + math.pi) * back_distance
+    #     back_y = robot_y + math.sin(self.robot.angle + math.pi) * back_distance
+
+    #     nozzle_world_angle = self.robot.angle + math.pi + self.robot.nozzle_angle
+    #     nozzle_length = 15
+    #     nozzle_end_x = back_x + math.cos(nozzle_world_angle) * nozzle_length
+    #     nozzle_end_y = back_y + math.sin(nozzle_world_angle) * nozzle_length
+
+    #     pygame.draw.line(self.screen, (200, 200, 100),
+    #                     (int(back_x), int(back_y)), (int(nozzle_end_x), int(nozzle_end_y)), 4)
+
+    #     # Draw water jet during 'jet' phase
+    #     if self.robot.get_state() == "jet":
+    #         num_particles = 8
+    #         for i in range(num_particles):
+    #             base_distance = nozzle_length + 5 + i * 4
+    #             curve_factor = abs(self.robot.nozzle_angle) * 0.5
+    #             curve_offset = curve_factor * (i * 0.3)
+
+    #             perpendicular_angle = nozzle_world_angle + math.pi/2
+    #             if self.robot.nozzle_angle > 0:
+    #                 curve_offset = -curve_offset
+
+    #             straight_x = back_x + math.cos(nozzle_world_angle) * base_distance
+    #             straight_y = back_y + math.sin(nozzle_world_angle) * base_distance
+
+    #             curved_x = straight_x + math.cos(perpendicular_angle) * curve_offset
+    #             curved_y = straight_y + math.sin(perpendicular_angle) * curve_offset
+
+    #             spread_variation = (i - num_particles/2) * 0.08
+    #             spread_x = curved_x + math.cos(perpendicular_angle) * spread_variation * 3
+    #             spread_y = curved_y + math.sin(perpendicular_angle) * spread_variation * 3
+
+    #             particle_size = max(1, 5 - i)
+    #             blue_intensity = max(100, 200 - i * 15)
+    #             particle_color = (80, 120, blue_intensity)
+
+    #             pygame.draw.circle(self.screen, particle_color,
+    #                              (int(spread_x), int(spread_y)), particle_size)
+
+    # def _draw_ui(self):
+    #     if hasattr(pygame, 'font') and pygame.font.get_init():
+    #         font = pygame.font.Font(None, 24)
+    #         info_lines = [
+    #             "SALP Robot - Steerable Nozzle",
+    #             f"Phase: {self.robot.get_state().title()}",
+    #             f"Body Size: {max(self.ellipse_a, self.ellipse_b):.2f}",
+    #             f"Speed: {self.robot.velocities[0]:.2f}",
+    #             f"Nozzle: {math.degrees(self.robot.nozzle_angle):.0f}°",
+    #         ]
+
+    #         for i, line in enumerate(info_lines):
+    #             text = font.render(line, True, (255, 255, 255))
+    #             self.screen.blit(text, (10, 10 + i * 25))
+    
+    def render(self):
+        """Render the environment."""
+        if self.render_mode is None:
+            return
+
+        # ensure pygame screen and clock are initialized
+        self._ensure_screen()
+
+        # background and tank
+        self._draw_background_and_tank()
+
+        # scaling between meters and pixels
+        scale = 200
+
+        # robot screen center from robot state
+        robot_x = int(self.robot.positions[0])
+        robot_y = int(self.robot.positions[1])
+
+        # draw historical path and sized ellipses
+        self._draw_history(scale, robot_x, robot_y)
+
+        # draw the current robot body
+        # self._draw_body(scale, robot_x, robot_y)
+
+        # draw nozzle and any jet particles
+        # self._draw_nozzle_and_jet(scale, robot_x, robot_y)
+
+        # draw UI overlay
+        # self._draw_ui()
+
         if self.render_mode == "human":
             pygame.display.flip()
             self.clock.tick(self.metadata["render_fps"])
@@ -577,7 +667,6 @@ if __name__ == "__main__":
         action = [0.06, 0.0, 0.0]  # inhale with no nozzle steering
         # For every step in the environment, there are multiple internal robot steps
         obs, reward, done, truncated, info = env.step(action)
-        print(env.robot.cycle_time)
         env.render()    
     env.close()
     
