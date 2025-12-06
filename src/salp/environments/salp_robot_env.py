@@ -326,6 +326,11 @@ class SalpRobotEnv(gym.Env):
         self.cycle_lengths = []
         self.cycle_widths = []
         self._history_color = (255, 200, 0)
+        # index of the history sample to draw (one ellipse at a time)
+        self._history_draw_index = 0
+        # whether to loop the history animation and how many samples to advance each frame
+        self._history_loop = True
+        self._history_step = 1
 
         self.reset()
     
@@ -343,6 +348,9 @@ class SalpRobotEnv(gym.Env):
         self.cycle_positions = []
         self.cycle_lengths = []
         self.cycle_widths = []
+        self._history_draw_index = 0
+        self._history_loop = True
+        self._history_step = 1
 
         return self._get_observation(), {}
     
@@ -357,6 +365,8 @@ class SalpRobotEnv(gym.Env):
             self.cycle_positions = [np.array(p) for p in position_history]
             self.cycle_lengths = [float(l) for l in length_history]
             self.cycle_widths = [float(w) for w in width_history]
+            # start drawing from the first recorded sample
+            self._history_draw_index = 0
         except Exception:
             self.cycle_positions = []
             self.cycle_lengths = []
@@ -458,73 +468,88 @@ class SalpRobotEnv(gym.Env):
                          self.width - 2*self.tank_margin, self.height - 2*self.tank_margin), 3)
 
     def _draw_history(self, scale: float, robot_x: int, robot_y: int):
-        # Draw the recorded movement history for the most recent cycle (if any).
-        # Represent the robot at sampled times by ellipses sized by length/width.
+
         if len(self.cycle_positions) == 0:
             return
-        pts = []
-        n = len(self.cycle_positions)
-        # sample up to ~40 points for performance/readability
-        sample_step = max(1, n // 40)
 
-        # detect whether positions are already in screen pixels (Robot.reset currently sets pixels)
+        n = len(self.cycle_positions)
+
+        # --- 1. Data Preparation (Keep this the same) ---
         max_coord = 0.0
         for p in self.cycle_positions:
             try:
                 max_coord = max(max_coord, abs(float(p[0])), abs(float(p[1])))
             except Exception:
                 continue
-
         positions_in_pixels = max_coord > 50.0
 
-        for i in range(0, n, sample_step):
-            p = self.cycle_positions[i]
+        # Sample points (Keep this to reduce jitter)
+        sample_step = max(1, n // 80)
+        sampled = list(range(0, n, sample_step))
+        if sampled[-1] != n - 1:
+            sampled.append(n - 1)
+
+        pts = []
+        for idx in sampled:
+            try:
+                p = self.cycle_positions[idx]
+            except Exception:
+                continue
             if positions_in_pixels:
                 px = int(p[0])
                 py = int(p[1])
             else:
                 px = robot_x + int(float(p[0]) * scale)
                 py = robot_y + int(float(p[1]) * scale)
-            pts.append((px, py, i))
+            pts.append((px, py, idx))
 
-        # draw connecting line
-        line_pts = [(x, y) for x, y, _ in pts]
-        if len(line_pts) > 1:
-            pygame.draw.lines(self.screen, self._history_color, False, line_pts, 2)
+        if not pts:
+            return
 
-        # draw sampled body ellipses at each point using corresponding length/width
-        for px, py, idx in pts:
-            # get nearest history index
-            li = min(idx, len(self.cycle_lengths) - 1) if len(self.cycle_lengths) > 0 else 0
-            wi = min(idx, len(self.cycle_widths) - 1) if len(self.cycle_widths) > 0 else 0
-            try:
-                body_len = float(self.cycle_lengths[li])
-                body_wid = float(self.cycle_widths[wi])
-            except Exception:
-                body_len = float(self.robot.init_length)
-                body_wid = float(self.robot.init_width)
+        # --- 2. THE NEW ANIMATION LOGIC ---
+        
+        # Calculate which frame to show based on system time.
+        # pygame.time.get_ticks() gives milliseconds. 
+        # Dividing by 50 means "change frame every 50ms" (approx 20 FPS).
+        # The % len(pts) makes it loop back to the start automatically.
+        animation_speed = 50 
+        current_frame_idx = int(pygame.time.get_ticks() / animation_speed) % len(pts)
 
-            # decide whether body_len/body_wid are in meters or already pixels
-            if body_len > 10.0:
-                ew = max(4, int(body_len))
-            else:
-                ew = max(4, int(scale * body_len))
+        # Pick ONLY the one point for this frame
+        px, py, idx = pts[current_frame_idx]
 
-            if body_wid > 10.0:
-                eh = max(4, int(body_wid))
-            else:
-                eh = max(4, int(scale * body_wid))
+        # --- 3. Draw the Single Ellipse (Logic moved out of loop) ---
+        li = min(idx, len(self.cycle_lengths) - 1) if len(self.cycle_lengths) > 0 else 0
+        wi = min(idx, len(self.cycle_widths) - 1) if len(self.cycle_widths) > 0 else 0
+        
+        try:
+            body_len = float(self.cycle_lengths[li])
+            body_wid = float(self.cycle_widths[wi])
+        except Exception:
+            body_len = float(self.robot.init_length)
+            body_wid = float(self.robot.init_width)
 
-            # create small transparent surface for ellipse
-            try:
-                ell_surf = pygame.Surface((ew, eh), pygame.SRCALPHA)
-                color = (*self._history_color, 100)  # add alpha
-                pygame.draw.ellipse(ell_surf, color, (0, 0, ew, eh))
-                rect = ell_surf.get_rect(center=(px, py))
-                self.screen.blit(ell_surf, rect)
-            except Exception:
-                # fallback: small circle
-                pygame.draw.circle(self.screen, self._history_color, (px, py), 3)
+        if body_len > 10.0:
+            ew = max(4, int(body_len))
+        else:
+            ew = max(4, int(scale * body_len))
+
+        if body_wid > 10.0:
+            eh = max(4, int(body_wid))
+        else:
+            eh = max(4, int(scale * body_wid))
+
+        # Draw it! (I removed the alpha fade since it's just one solid ghost now)
+        try:
+            # Use a solid color or semi-transparent for the single ghost
+            # 150 alpha makes it look like a "ghost" but clearly visible
+            ell_surf = pygame.Surface((ew, eh), pygame.SRCALPHA)
+            color = (*self._history_color, 150) 
+            pygame.draw.ellipse(ell_surf, color, (0, 0, ew, eh))
+            rect = ell_surf.get_rect(center=(px, py))
+            self.screen.blit(ell_surf, rect)
+        except Exception:
+            pygame.draw.circle(self.screen, self._history_color, (px, py), 3)
 
     def _draw_body(self, scale: float, robot_x: int, robot_y: int):
         # Body color based on robot internal state
