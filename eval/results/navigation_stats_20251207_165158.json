@@ -1,0 +1,30 @@
+{
+  "num_trials": 100,
+  "start_position": [
+    150.0,
+    300.0
+  ],
+  "goal_position": [
+    650.0,
+    300.0
+  ],
+  "optimal_distance": 500.0,
+  "success_rate": 1.0,
+  "successful_trials": 100,
+  "failed_trials": 0,
+  "avg_path_length": 586.6939262426505,
+  "std_path_length": 70.1198624908394,
+  "avg_path_ratio": 1.1733878524853012,
+  "avg_straightness": 0.8632938474811169,
+  "std_straightness": 0.0937647829724318,
+  "avg_steps": 1773.78,
+  "std_steps": 253.818777083178,
+  "avg_lateral_deviation": 37.747199080542124,
+  "std_lateral_deviation": 23.521341963353088,
+  "avg_final_distance": 49.60303477104716,
+  "avg_area_covered": 46228.71164380352,
+  "std_area_covered": 24587.03715764743,
+  "avg_area_ratio": 0.9245742328760704,
+  "avg_x_range": 460.0456803116212,
+  "avg_y_range": 100.06453057931625
+}

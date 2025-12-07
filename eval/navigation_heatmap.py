@@ -471,8 +471,7 @@ class NavigationHeatmapEvaluator:
         
         # Calculate stats
         success_rate = sum(r['success'] for r in results) / len(results)
-        avg_path_length = np.mean([r['path_length'] for r in results])
-        std_path_length = np.std([r['path_length'] for r in results])
+        avg_path_ratio = np.mean([r['path_ratio'] for r in results])
         
         # Add title and labels
         ax.set_xlim(0, self.env_width)
@@ -481,14 +480,10 @@ class NavigationHeatmapEvaluator:
         ax.set_ylabel('Y Position (pixels)', fontsize=12)
         ax.set_title(f'Individual Navigation Trajectories (N={len(results)})\n'
                     f'Success Rate: {success_rate*100:.1f}% | '
-                    f'Avg Path: {avg_path_length:.0f}±{std_path_length:.0f}px', 
+                    f'Path Efficiency: {avg_path_ratio:.2f}x optimal', 
                     fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
-        
-        # Legend (outside plot)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', 
-                 fontsize=9, framealpha=0.9)
         
         plt.tight_layout()
         
