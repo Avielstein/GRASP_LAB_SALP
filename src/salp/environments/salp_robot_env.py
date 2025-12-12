@@ -463,7 +463,7 @@ class SalpRobotEnv(gym.Env):
         self.screen.fill((10, 25, 50))
 
         # Draw tank boundaries
-        pygame.draw.rect(self.screen, (0, 0, 0),
+        pygame.draw.rect(self.screen, (255, 255, 255),
                         (self.tank_margin, self.tank_margin,
                          self.width - 2*self.tank_margin, self.height - 2*self.tank_margin), 3)
 
