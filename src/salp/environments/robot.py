@@ -868,7 +868,7 @@ if __name__ == "__main__":
         robot.nozzle.solve_angles()
         robot.set_control(contraction=contraction, coast_time=coast_time, nozzle_angles=np.array([robot.nozzle.angle1, robot.nozzle.angle2]))
         robot.nozzle.set_angles(angle1=-0.43, angle2=1.14)
-        plot_nozzle_direction(robot.nozzle, title=f'Cycle {i+1} Nozzle Direction')
+        # plot_nozzle_direction(robot.nozzle, title=f'Cycle {i+1} Nozzle Direction')
         robot.step_through_cycle()
     
         # Create time array for this cycle

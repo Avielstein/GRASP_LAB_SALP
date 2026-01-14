@@ -94,6 +94,10 @@ class SalpRobotEnv(gym.Env):
         # Interactive control state
         self.current_coast_time = 0.5
         self.current_compression = 0.0
+        
+        # Trajectory visualization
+        self.trajectory_waypoints = []  # List of waypoints to visualize
+        self.current_waypoint_index = 0  # Index of current target in trajectory
 
         self.reset()
     
@@ -362,7 +366,7 @@ class SalpRobotEnv(gym.Env):
         # print(f"Drawing target at screen pos: ({target_screen_x}, {target_screen_y})")
         
         # Draw target point as a circle with crosshair
-        target_radius = 15
+        target_radius = 7
         target_color = (255, 0, 0)  # Bright red
         outline_color = (255, 100, 100)  # Light red outline
         crosshair_color = (200, 0, 0)  # Darker red for crosshair
@@ -371,7 +375,7 @@ class SalpRobotEnv(gym.Env):
         pygame.draw.circle(self.screen, target_color, (target_screen_x, target_screen_y), target_radius)
         
         # Draw outline
-        pygame.draw.circle(self.screen, outline_color, (target_screen_x, target_screen_y), target_radius, 3)
+        pygame.draw.circle(self.screen, outline_color, (target_screen_x, target_screen_y), target_radius, 1)
         
         # Draw crosshair (plus sign)
         crosshair_size = target_radius + 5
@@ -396,6 +400,72 @@ class SalpRobotEnv(gym.Env):
         dist_label = font.render(f"d:{distance_to_target:.2f}m", True, crosshair_color)
         dist_label_rect = dist_label.get_rect(midtop=(target_screen_x, target_screen_y + target_radius + 10))
         self.screen.blit(dist_label, dist_label_rect)
+    
+    def set_trajectory(self, waypoints: List[np.ndarray]):
+        """
+        Set a trajectory for the robot to follow.
+        
+        Args:
+            waypoints: List of [x, y] waypoints in meters
+        """
+        self.trajectory_waypoints = waypoints
+        self.current_waypoint_index = 0
+        if len(waypoints) > 0:
+            self.target_point = waypoints[0]
+    
+    def _draw_trajectory(self, scale: float = 200.0):
+        """
+        Draw the entire trajectory path.
+        
+        Args:
+            scale: Pixels per meter for coordinate conversion
+        """
+        if not hasattr(self, 'trajectory_waypoints') or len(self.trajectory_waypoints) == 0:
+            return
+        
+        if self.screen is None:
+            return
+        
+        # Draw lines connecting waypoints
+        if len(self.trajectory_waypoints) > 1:
+            points = []
+            for waypoint in self.trajectory_waypoints:
+                screen_x = int(self.pos_init[0] + waypoint[0] * scale)
+                screen_y = int(self.pos_init[1] + waypoint[1] * scale)
+                points.append((screen_x, screen_y))
+
+            points.append(points[0]) # close the loop
+            # Draw trajectory path
+            pygame.draw.lines(self.screen, (100, 100, 255), False, points, 2)
+        
+        # Draw all waypoints
+        for i, waypoint in enumerate(self.trajectory_waypoints):
+            screen_x = int(self.pos_init[0] + waypoint[0] * scale)
+            screen_y = int(self.pos_init[1] + waypoint[1] * scale)
+            
+            # Color based on status: visited (gray), current (red), future (blue)
+            if i < self.current_waypoint_index:
+                # Already visited - gray
+                color = (100, 100, 100)
+                radius = 5
+            elif i == self.current_waypoint_index:
+                # Current target - already drawn by _draw_target_point
+                continue
+            else:
+                # Future waypoints - blue
+                color = (0, 100, 255)
+                radius = 7
+            
+            pygame.draw.circle(self.screen, color, (screen_x, screen_y), radius)
+            pygame.draw.circle(self.screen, (255, 255, 255), (screen_x, screen_y), radius, 1)
+            
+            # Draw waypoint number
+            if not (hasattr(pygame, 'font') and pygame.font.get_init()):
+                pygame.font.init()
+            font = pygame.font.Font(None, 12)
+            label = font.render(str(i+1), True, (255, 255, 255))
+            label_rect = label.get_rect(center=(screen_x, screen_y - radius - 8))
+            self.screen.blit(label, label_rect)
     
     def _get_observation(self) -> np.ndarray:
         """Get current observation."""
@@ -971,6 +1041,9 @@ class SalpRobotEnv(gym.Env):
         # draw a small reference frame at the tank center (x/y axes)
         self._draw_reference_frame(scale)
 
+        # draw trajectory waypoints (before target point so it's on top)
+        self._draw_trajectory(scale)
+        
         self._draw_target_point(scale)
         # draw historical path and sized ellipses
         # draw real-time animated history of the current cycle
