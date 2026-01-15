@@ -164,6 +164,9 @@ class SalpRobotEnv(gym.Env):
                 # Reset animation for new cycle
                 self._animation_start_time = None
                 self._animation_complete = False
+                # Set animation duration based on actual cycle time (convert to milliseconds)
+                actual_cycle_time = max(self.robot.refill_time, self.robot.nozzle.turn_time) + self.robot.jet_time + self.robot.coast_time
+                self._animation_total_duration_ms = actual_cycle_time / 2 * 1000
             except Exception:
                 self.cycle_positions = []
                 self.cycle_euler_angles = []
@@ -631,6 +634,7 @@ class SalpRobotEnv(gym.Env):
         return self._animation_complete
 
     def wait_for_animation(self):
+
         """Block until the current cycle animation completes."""
         while not self._animation_complete:
             self.render()
@@ -1378,7 +1382,7 @@ if __name__ == "__main__":
     nozzle = Nozzle(length1=0.05, length2=0.05, length3=0.05, area=0.00016, mass=1.0)
     robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15, 
                   max_contraction=0.06, nozzle=nozzle)
-    robot.nozzle.set_angles(angle1=0.0, angle2=np.pi)
+    robot.nozzle.set_angles(angle1=0.0, angle2=0.0)
     robot.set_environment(density=1000)  # water density in kg/m^3
     env = SalpRobotEnv(render_mode="human", robot=robot)
     obs, info = env.reset()
@@ -1386,26 +1390,11 @@ if __name__ == "__main__":
     done = False
     cnt = 0
     
-    # Test action sequence
-    actions = np.array([
-        [0.695722, 0.01922786, -0.06692487],
-        [0.2808507, 0.8017318, 0.87773895],
-        [0.57452214, 0.11145315, -0.82465506],
-        [0.32618135, 0.11088043, 0.88842094],
-        [0.17267734, 0.6958977, -0.9337022],
-        [0.49285844, 0.2883283, 0.81122017],
-        [0.34796143, 0.35572827, -0.8472595],
-        [0.49369425, 0.27951986, 0.8069289],
-        [0.37975544, 0.338947, -0.8655774],
-        [0.4979022, 0.23918751, 0.7962456]
-    ])
-    
-    env.start_recording()
-    while cnt < 10:
-        # action = [0.06, 0.0, 0.0]  # inhale with no nozzle steering
+    # env.start_recording()
+    while not done:
+        action = [1, 0.1, (cnt % 2) * 1]  # inhale with no nozzle steering
         # For every step in the environment, there are multiple internal robot steps
         # action = env.sample_random_action()
-        action = actions[cnt % len(actions)]
         obs, reward, done, truncated, info = env.step(action)
         # print("Step:", cnt, "Action:", action, "Obs:", obs, "Reward:", reward, "Done:", done)
         # print(reward)
@@ -1413,6 +1402,6 @@ if __name__ == "__main__":
         # Wait for the animation to complete before next step
         env.wait_for_animation()
         # env.render()
-    gif_path = env.stop_recording(filename="manual_actions.gif")
+    # gif_path = env.stop_recording(filename="manual_actions.gif")
     env.close()
       

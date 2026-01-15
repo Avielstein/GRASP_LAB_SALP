@@ -28,6 +28,7 @@ class Nozzle:
         self.prev_angle1 = 0.0
         self.prev_angle2 = 0.0  
         self.yaw = 0.0  # yaw angle around z axis for control
+        self.prev_yaw = 0.0
         self.current_yaw = 0.0 
         self.gamma = np.pi / 4  # fixed tilt angle of nozzle downwards
         self.angle_speed = 31 * np.pi / 30  # rad/s
@@ -58,6 +59,7 @@ class Nozzle:
         Args:
             yaw_angle: Rotation angle around z axis
         """
+        self.prev_yaw = self.yaw
         self.yaw = yaw_angle
 
     def solve_angles(self):
@@ -114,7 +116,7 @@ class Nozzle:
         # only need nozzle angle history for rendering
         if time < self.turn_time:
             ratio = time / self.turn_time
-            self.current_yaw = ratio * self.yaw
+            self.current_yaw = self.prev_yaw + ratio * (self.yaw - self.prev_yaw)
         else:
             self.current_yaw = self.yaw
         
@@ -308,6 +310,7 @@ class Robot:
         self.drag_coefficient_history = []
         self.drag_force_history = []
         self.drag_torque_history = []
+        self.nozzle_yaw_history = []
 
 
     def set_environment(self, density: float):
@@ -365,6 +368,7 @@ class Robot:
         self.drag_coefficient_history = []
         self.drag_force_history = []
         self.drag_torque_history = []
+        self.nozzle_yaw_history = []
 
     def set_control(self, contraction: float, coast_time: float, nozzle_angles: np.ndarray):
         """Set control inputs for the robot.
@@ -825,7 +829,7 @@ if __name__ == "__main__":
         plot_volume_rate, plot_cross_sectional_area, plot_jet_velocity,
         plot_jet_properties, plot_drag_coefficient, plot_drag_properties,
         plot_robot_position, plot_robot_velocity, plot_jet_torque, plot_trajectory_xy,
-        plot_nozzle_direction
+        plot_nozzle_direction, plot_nozzle_yaw_angle
     )
 
     # Test the Robot and Nozzle classes
@@ -838,7 +842,7 @@ if __name__ == "__main__":
     robot.reset()
     
     # Step through multiple cycles and collect state data
-    n_cycles = 1
+    n_cycles = 2
     
     # Initialize accumulators for all cycle data
     all_time_data = []
@@ -861,6 +865,7 @@ if __name__ == "__main__":
     all_drag_coefficient_data = []
     all_drag_force_data = []
     all_drag_torque_data = []
+    all_nozzle_yaw_data = []
 
     for i in range(n_cycles):
         # robot.nozzle.set_yaw_angle(yaw_angle=np.random.uniform(-np.pi/2, np.pi/2))
@@ -868,9 +873,14 @@ if __name__ == "__main__":
         # coast_time = np.random.uniform(0.0, 2.0)
         # TODO: debug this Action taken: Inhale: 0.51, Coast Time: 0.86, Nozzle Yaw: -0.85 rad
 
-        contraction = 0.01
-        coast_time = 1
-        yaw_angle = np.pi/2
+        if i % 2 == 0:
+            contraction = 0.01
+            coast_time = 1
+            yaw_angle = np.pi/2
+        else:
+            contraction = 0.01
+            coast_time = 1
+            yaw_angle = -np.pi/2
 
         robot.nozzle.set_yaw_angle(yaw_angle=yaw_angle)
 
@@ -903,6 +913,7 @@ if __name__ == "__main__":
         all_drag_coefficient_data.extend(robot.drag_coefficient_history)
         all_drag_force_data.extend(robot.drag_force_history)
         all_drag_torque_data.extend(robot.drag_torque_history)
+        all_nozzle_yaw_data.extend(robot.nozzle_yaw_history)
     
     # Convert accumulated data to numpy arrays
     all_time_data = np.array(all_time_data)
@@ -925,7 +936,8 @@ if __name__ == "__main__":
     all_drag_coefficient_data = np.array(all_drag_coefficient_data)
     all_drag_force_data = np.array(all_drag_force_data)
     all_drag_torque_data = np.array(all_drag_torque_data)
-    
+    all_nozzle_yaw_data = np.array(all_nozzle_yaw_data)
+
     # Plot all cycles together
     # plot_robot_geometry(all_time_data, all_length_data, all_width_data, all_state_data)
     # plot_cross_sectional_area(all_time_data, all_area_data, all_state_data)  
@@ -943,6 +955,7 @@ if __name__ == "__main__":
     # plot_drag_torque(all_time_data, all_drag_torque_data, all_state_data)
     # plot_angular_acceleration(all_time_data, all_angular_acceleration_data, all_state_data)
     # plot_euler_angles(all_time_data, all_euler_angle_data, all_state_data)
+    plot_nozzle_yaw_angle(all_time_data, all_nozzle_yaw_data, all_state_data)
     
     # Plot trajectory in x-y plane with yaw orientation
     # plot_trajectory_xy(all_position_data, all_state_data, all_euler_angle_data)
