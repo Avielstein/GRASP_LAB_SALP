@@ -236,12 +236,15 @@ class SalpRobotEnv(gym.Env):
         # 4. Smoothness (Action Jerk)
         # Only penalize the nozzle angle change, not the thrust change
         angle_change = abs(nozzle_yaw - self.prev_action[2])
-        r_smooth = -0.1 * (angle_change ** 2)
+        r_smooth = - 5.0 * (angle_change ** 2)
         # print(r_smooth)
+
+        # 5. yaw Stability (Penalize large yaw changes)
+        r_yaw = -0.5 * (abs(self.robot.angular_velocity[2]) ** 2)
         
         # Total
         # Note: Weights are critical. Tracking is usually the most important.
-        total_reward = (1.0 * r_track) + (0.5 * r_heading) + r_energy + r_smooth
+        total_reward = (1.0 * r_track) + (0.5 * r_heading) + r_energy + r_smooth + r_yaw
         # print(total_reward)
 
         # print(f"Reward components: Track={r_track:.3f}, Heading={r_heading:.3f}, Energy={r_energy:.3f}, Smoothness={r_smooth:.3f}, Total={total_reward:.3f}")

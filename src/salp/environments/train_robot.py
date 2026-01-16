@@ -9,7 +9,7 @@ import numpy as np
 
 def make_env():
     # Create and return the SalpRobotEnv environment
-    nozzle = Nozzle(length1=0.05, length2=0.05, length3=0.05, area=0.00008, mass=1.0)
+    nozzle = Nozzle(length1=0.05, length2=0.05, length3=0.05, area=0.00016, mass=1.0)
     robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15, 
                     max_contraction=0.06, nozzle=nozzle)
     robot.nozzle.set_angles(angle1=0.0, angle2=0.0)  # set nozzle angles
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     #     tau=0.005,             # Polyak averaging (Soft update)
     #     device="cuda" 
     # )
-    model = SAC.load("./logs/salp_robot_model_400000_steps", env=vec_env)
+    model = SAC.load("./salp_robot_final_nozzle_continuity", env=vec_env)
     # model.learning_rate = 1e-3  # Reset learning rate when loading
 
     # 4. Setup Saving (Checkpoints)
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     checkpoint_callback = CheckpointCallback(
         save_freq= 5000,
         save_path='./logs/',
-        name_prefix='salp_robot_model_less_slow'
+        name_prefix='salp_robot_model_yaw_continuity'
     )
     
     # 5. Train
@@ -64,9 +64,9 @@ if __name__ == "__main__":
         total_timesteps=400000, # Run for 400k steps
         callback=checkpoint_callback,
         reset_num_timesteps=True,
-        tb_log_name="salp_robot_run_less_slow"
+        tb_log_name="salp_robot_run_yaw_continuity"
     )
 
     # 6. Save Final Model
-    model.save("salp_robot_final_less_slow")
+    model.save("salp_robot_final_yaw_continuity")
     print("Training finished.")
