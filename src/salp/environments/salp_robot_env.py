@@ -63,10 +63,14 @@ class SalpRobotEnv(gym.Env):
         vel_x_limits = [-np.inf, np.inf]
         vel_y_limits = [-np.inf, np.inf]
         yaw_limits = [-np.inf, np.inf]
-        angular_vel_limits = [-np.inf, np.inf] 
+        angular_vel_limits = [-np.inf, np.inf]
+        # cross_track_error_limits = [-np.inf, np.inf]
+        heading_error_limits = [-np.pi, np.pi]    
         self.observation_space = spaces.Box(
-            low=np.array([pos_x_limits[0], pos_y_limits[0], vel_x_limits[0], vel_y_limits[0], yaw_limits[0], angular_vel_limits[0]]),
-            high=np.array([pos_x_limits[1], pos_y_limits[1], vel_x_limits[1], vel_y_limits[1], yaw_limits[1], angular_vel_limits[1]]),
+            low=np.array([pos_x_limits[0], pos_y_limits[0], vel_x_limits[0], \
+                          vel_y_limits[0], yaw_limits[0], angular_vel_limits[0], heading_error_limits[0]]),
+            high=np.array([pos_x_limits[1], pos_y_limits[1], vel_x_limits[1], \
+                            vel_y_limits[1], yaw_limits[1], angular_vel_limits[1], heading_error_limits[1]]),
             dtype=np.float32
         )
         # Movement history for the current action/breathing cycle (robot-frame meters)
@@ -96,6 +100,8 @@ class SalpRobotEnv(gym.Env):
         self.current_compression = 0.0
         
         # Trajectory visualization
+        self.target_point = None  # Current target point
+        self.prev_target_point = None  # Previous target point
         self.trajectory_waypoints = []  # List of waypoints to visualize
         self.current_waypoint_index = 0  # Index of current target in trajectory
 
@@ -113,6 +119,7 @@ class SalpRobotEnv(gym.Env):
         self.pos_init = np.array([self.width / 2, self.height / 2])
         self.prev_dist = np.linalg.norm(self.robot.position[0:-1] - self.target_point)
         self.prev_action = np.array([0.0, 0.0, 0.0])
+        self.prev_target_point = self.robot.position[0:-1].copy()
        
         # self.body_radius = self.base_radius  # Current body radius
         self.ellipse_a = self.robot.get_current_length()    # Semi-major axis for ellipse
@@ -178,6 +185,9 @@ class SalpRobotEnv(gym.Env):
         # Calculate reward
         reward = self._calculate_reward()
         
+        observation = self._get_observation()
+        # print(f"Obs: {observation}")
+
         # Check termination
         done = False
         truncated = False
@@ -193,15 +203,17 @@ class SalpRobotEnv(gym.Env):
         # reset after a certain number of steps
         if self.robot.cycle >= 500:
             truncated = True
-        
-        observation = self._get_observation()
-        # print(f"Obs: {observation}")
+
+        # if abs(observation[-2]) > 0.5:  # cross track error too large
+        #     truncated = True
+        #     reward -= 5.0  # penalty for large cross track error
 
         # info = self._get_info()
         info = {
             'position_history': self.robot.position_history,
             'length_history': self.robot.length_history,
-            'width_history': self.robot.width_history
+            'width_history': self.robot.width_history,
+            'nozzle_yaw_history': self.robot.nozzle_yaw_history
         }
         
         self.prev_action = self.action
@@ -220,10 +232,26 @@ class SalpRobotEnv(gym.Env):
         
         # 2. Heading (Dot Product)
         # Normalize vectors first!
+        path_vec = self.target_point - self.prev_target_point
+        path_length = np.linalg.norm(path_vec) + 1e-6
+        path_dir = path_vec / path_length
+        robot_vec = self.robot.position[0:-1] - self.prev_target_point
 
-        error_direction = - (current_diff / (np.linalg.norm(current_diff) + 1e-6))
-        heading = self.robot.velocity_world[0:-1] / (np.linalg.norm(self.robot.velocity_world[0:-1]) + 1e-6)
-        r_heading = np.dot(heading, error_direction)
+        # 6. cross track error penalty
+        projection = np.dot(robot_vec, path_dir)
+        projection = np.clip(projection, 0.0, path_length)
+        closest_point = self.prev_target_point + projection * path_dir 
+        cross_track_error = np.linalg.norm(self.robot.position[0:-1] - closest_point)
+
+        cross_track_tol = 0.05  # 5 cm tolerance
+        excess_track_error = max(0.0, cross_track_error - cross_track_tol)
+
+        # also clip it to avoid huge penalties
+        # r_cross_track = max(-10.0 * excess_track_error, -2.0)  # max penalty of -2.0
+        r_cross_track = 0.0
+
+        on_track_weight = np.clip(1.0 - (cross_track_error / 0.3), 0.0, 1.0)  # full reward within 0.3m, none beyond that
+        r_heading = 50 * np.dot(self.robot.velocity_world[0:-1], path_dir) * on_track_weight
         # print(r_heading)
         
         # 3. Energy (Thrust + Coasting) I don't care about this for now
@@ -241,11 +269,15 @@ class SalpRobotEnv(gym.Env):
 
         # 5. yaw Stability (Penalize large yaw changes)
         r_yaw = -0.5 * (abs(self.robot.angular_velocity[2]) ** 2)
-        
+
+        # 7. time penalty
+        r_time = 0.0  # small penalty to encourage faster completion
+
         # Total
         # Note: Weights are critical. Tracking is usually the most important.
-        total_reward = (1.0 * r_track) + (0.5 * r_heading) + r_energy + r_smooth + r_yaw
+        total_reward = (1.0 * r_track) + (1 * r_heading) + r_energy + r_smooth + r_yaw + r_cross_track + r_time
         # print(total_reward)
+
 
         # print(f"Reward components: Track={r_track:.3f}, Heading={r_heading:.3f}, Energy={r_energy:.3f}, Smoothness={r_smooth:.3f}, Total={total_reward:.3f}")
         
@@ -486,6 +518,16 @@ class SalpRobotEnv(gym.Env):
         #     self.robot.angular_velocity[2],  # Normalized angular velocity
         # ], dtype=np.float32))
 
+        path_vec = self.target_point - self.prev_target_point
+        path_length = np.linalg.norm(path_vec) + 1e-6   
+        path_dir = path_vec / path_length
+        robot_vec = self.robot.position[0:-1] - self.prev_target_point
+        cross_track_error = np.cross(path_dir, robot_vec)
+
+        path_yaw = np.arctan2(path_dir[1], path_dir[0])
+        raw_error = self.robot.euler_angle[2] - path_yaw
+        heading_error = (raw_error + np.pi) % (2 * np.pi) - np.pi  # Wrap to [-pi, pi]
+
         return np.array([
             self.robot.position[0] - self.target_point[0],  # Normalized position
             self.robot.position[1] - self.target_point[1],
@@ -493,6 +535,8 @@ class SalpRobotEnv(gym.Env):
             self.robot.velocity[1],
             self.robot.euler_angle[2],  # Normalized body angle
             self.robot.angular_velocity[2],  # Normalized angular velocity
+            # cross_track_error,
+            heading_error             
         ], dtype=np.float32)
     
     def _get_info(self) -> Dict:
@@ -1399,6 +1443,7 @@ if __name__ == "__main__":
         # For every step in the environment, there are multiple internal robot steps
         # action = env.sample_random_action()
         obs, reward, done, truncated, info = env.step(action)
+        # print(env.target_point, env.prev_target_point)
         # print("Step:", cnt, "Action:", action, "Obs:", obs, "Reward:", reward, "Done:", done)
         # print(reward)
         cnt += 1
