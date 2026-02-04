@@ -9,8 +9,8 @@ robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15,
 robot.nozzle.set_angles(angle1=0.0, angle2=0.0)
 env = SalpRobotEnv(render_mode="human", robot=robot)
 # Load the trained model
-model = SAC.load("./logs/salp_robot_model_400000_steps", env=env)   
-
+model = SAC.load("./logs/salp_robot_model_200000_steps", env=env)   
+''
 
 obs, _ = env.reset()
 env.start_recording()
