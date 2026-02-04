@@ -8,9 +8,11 @@ robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15,
                   max_contraction=0.06, nozzle=nozzle)
 robot.nozzle.set_angles(angle1=0.0, angle2=0.0)
 env = SalpRobotEnv(render_mode="human", robot=robot)
-# Load the trained model
-model = SAC.load("./logs/salp_robot_model_200000_steps", env=env)   
-''
+# Load the trained model from the new location
+# Option 1: Use the final trained model
+model = SAC.load("../data/models/v1/salp_robot_finalv2", env=env)
+# Option 2: Use the 200k checkpoint
+# model = SAC.load("../data/models/v1/checkpoints/salp_robot_model_200000_steps", env=env)
 
 obs, _ = env.reset()
 env.start_recording()
