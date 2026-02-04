@@ -1,4 +1,5 @@
 # test_robot.py
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 from stable_baselines3 import SAC
@@ -304,6 +305,106 @@ def test_trajectory_tracking(env, model, trajectory, steps_per_target=50, render
         'desired_trajectory': trajectory
     }
     
+    return stats
+
+
+def test_trajectory_tracking_real(
+    model,
+    trajectory,
+    get_observation,
+    apply_action,
+    get_position,
+    steps_per_target=50,
+    reach_threshold=0.05,
+    step_delay=0.0,
+    loop_trajectory=True,
+    sleep_fn=None,
+    on_target_change=None,
+    on_step=None,
+):
+    """
+    Test the robot's ability to track a trajectory without a simulation environment.
+
+    Args:
+        model: Trained policy with a .predict(obs, deterministic=True) method
+        trajectory: List of target points (array-like with at least [x, y])
+        get_observation: Callable returning the latest observation for the model
+        apply_action: Callable that sends the action to the real robot
+        get_position: Callable returning current robot position (array-like [x, y, ...])
+        steps_per_target: Max control steps per target
+        reach_threshold: Distance threshold (m) for reaching a target
+        step_delay: Optional delay (s) between control steps
+        loop_trajectory: If True, loop back to the first waypoint
+        sleep_fn: Optional sleep function (defaults to time.sleep)
+        on_target_change: Optional callback (target_idx, target)
+        on_step: Optional callback (global_step, target_idx, position, distance)
+
+    Returns:
+        Dictionary with tracking statistics including actual trajectory
+    """
+    if len(trajectory) == 0:
+        raise ValueError("trajectory must contain at least one waypoint")
+
+    sleep_fn = sleep_fn or time.sleep
+
+    working_trajectory = [np.asarray(p) for p in trajectory]
+    if loop_trajectory and len(working_trajectory) > 1:
+        working_trajectory = working_trajectory + [working_trajectory[0]]
+        working_trajectory = working_trajectory[1:]
+
+    total_steps = 0
+    targets_reached = 0
+    distances_to_targets = []
+
+    # Record actual robot trajectory
+    start_pos = np.asarray(get_position())[0:2]
+    actual_trajectory = [start_pos]
+
+    for target_idx, target in enumerate(working_trajectory):
+        target_xy = np.asarray(target)[0:2]
+        print(f"\nTarget {target_idx+1}/{len(working_trajectory)}: ({target_xy[0]:.2f}, {target_xy[1]:.2f})")
+        if on_target_change:
+            on_target_change(target_idx, target_xy)
+
+        min_distance = float("inf")
+
+        for step in range(steps_per_target):
+            obs = get_observation()
+            action, _ = model.predict(obs, deterministic=True)
+            apply_action(action)
+
+            if step_delay > 0:
+                sleep_fn(step_delay)
+
+            position = np.asarray(get_position())[0:2]
+            actual_trajectory.append(position)
+
+            distance = np.linalg.norm(position - target_xy)
+            min_distance = min(min_distance, distance)
+            total_steps += 1
+
+            if on_step:
+                on_step(total_steps - 1, target_idx, position, distance)
+
+            if distance < reach_threshold:
+                targets_reached += 1
+                print(f"  ✓ Reached in {step+1} steps (distance: {distance:.3f}m)")
+                break
+
+        distances_to_targets.append(min_distance)
+        if min_distance >= reach_threshold:
+            print(f"  ✗ Closest approach: {min_distance:.3f}m")
+
+    stats = {
+        "total_targets": len(working_trajectory),
+        "targets_reached": targets_reached,
+        "success_rate": targets_reached / len(working_trajectory),
+        "avg_min_distance": np.mean(distances_to_targets),
+        "total_steps": total_steps,
+        "actual_trajectory": actual_trajectory,
+        "desired_trajectory": working_trajectory,
+    }
+
     return stats
 
 
