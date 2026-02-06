@@ -37,6 +37,7 @@ class SalpRobotEnv(gym.Env):
         self.height = height
         self.pos_init = np.array([width / 2, height / 2])  # Start in center
         self.tank_margin = 50
+        self.target_radius = 0.05  # Target reach radius in meters (5cm tolerance)
         
         # Pygame setup
         self.render_mode = render_mode
@@ -176,7 +177,7 @@ class SalpRobotEnv(gym.Env):
         truncated = False
 
         distance_to_target = np.linalg.norm(self.robot.position[0:-1] - self.target_point)
-        if distance_to_target < 0.01:
+        if distance_to_target < self.target_radius:
             done = True
             reward += 10.0  # big reward for reaching target
         elif distance_to_target > 5.0:
@@ -213,31 +214,38 @@ class SalpRobotEnv(gym.Env):
         
         # 2. Heading (Dot Product)
         # Normalize vectors first!
-
         error_direction = - (current_diff / (np.linalg.norm(current_diff) + 1e-6))
         heading = self.robot.velocity_world[0:-1] / (np.linalg.norm(self.robot.velocity_world[0:-1]) + 1e-6)
         r_heading = np.dot(heading, error_direction)
         # print(r_heading)
         
-        # 3. Energy (Thrust + Coasting) I don't care about this for now
-        _, _, nozzle_yaw = self.action
-        # # Penalize high thrust, Reward long coasting
-        # r_energy = -0.1 * (thrust ** 2) - 0.01 / (coast_time + 1e-6)
-        r_energy = 0.0
+        # 3. Cycle penalty - encourage fewer cycles to reach target (time efficiency)
+        r_cycle = -0.5  # Small penalty per cycle
+        
+        # 4. Energy efficiency - encourage strong compressions to maximize thrust per cycle
+        compression = self.action[0] if len(self.action) > 0 else 0.0
+        r_energy = -0.1 * (1.0 - compression) ** 2  # Penalize weak compressions
         # print(r_energy)
         
-        # 4. Smoothness (Action Jerk)
+        # 5. Smoothness (Action Jerk)
         # Only penalize the nozzle angle change, not the thrust change
+        nozzle_yaw = self.action[2] if len(self.action) > 2 else 0.0
         angle_change = abs(nozzle_yaw - self.prev_action[2])
         r_smooth = -0.1 * (angle_change ** 2)
         # print(r_smooth)
         
         # Total
         # Note: Weights are critical. Tracking is usually the most important.
-        total_reward = (1.0 * r_track) + (0.5 * r_heading) + r_energy + r_smooth
+        total_reward = (
+            1.0 * r_track +      # Distance progress (most important)
+            0.5 * r_heading +    # Heading alignment
+            1.0 * r_cycle +      # Time penalty (NEW - encourages fewer cycles)
+            0.2 * r_energy +     # Energy efficiency (NEW - encourages strong compressions)
+            1.0 * r_smooth       # Control smoothness
+        )
         # print(total_reward)
 
-        # print(f"Reward components: Track={r_track:.3f}, Heading={r_heading:.3f}, Energy={r_energy:.3f}, Smoothness={r_smooth:.3f}, Total={total_reward:.3f}")
+        # print(f"Reward components: Track={r_track:.3f}, Heading={r_heading:.3f}, Cycle={r_cycle:.3f}, Energy={r_energy:.3f}, Smoothness={r_smooth:.3f}, Total={total_reward:.3f}")
         
         return float(total_reward)
     

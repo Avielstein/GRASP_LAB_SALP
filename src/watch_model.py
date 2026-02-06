@@ -85,7 +85,7 @@ def run_episode(env, model, max_cycles=20):
 
 def main():
     # Parse command-line arguments
-    MODEL_PATH = "./logs/best_model/best_model.zip"  # Default
+    MODEL_PATH = "./logs/v3/best_model/best_model.zip"  # Default
     AUTO_RELOAD = True  # Auto-reload by default
     
     if len(sys.argv) > 1:
