@@ -35,8 +35,10 @@ if __name__ == "__main__":
     print("Environment is valid!")
 
     # 3. Define the Model (SAC)
-    # Load previous model to continue training with new reward function
-    model = SAC.load("../data/models/v1/salp_robot_finalv2", env=vec_env)
+    # V4: Continue training from v3 best model
+    print("Loading v3 best model to continue training as v4...")
+    model = SAC.load("./logs/v3/best_model/best_model", env=vec_env)
+    print("✅ v3 best model loaded successfully!")
     
     # Alternatively, start from scratch:
     # model = SAC(
@@ -59,15 +61,15 @@ if __name__ == "__main__":
     # Save the model every 1000 steps so you don't lose progress if it crashes.
     checkpoint_callback = CheckpointCallback(
         save_freq=1000,
-        save_path='./logs/v3/',
-        name_prefix='salp_robot_model_v3'
+        save_path='./logs/v4/',
+        name_prefix='salp_robot_model_v4'
     )
     
     # Setup Evaluation callback to save best model only
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path='./logs/v3/best_model/',
-        log_path='./logs/v3/eval_logs/',
+        best_model_save_path='./logs/v4/best_model/',
+        log_path='./logs/v4/eval_logs/',
         eval_freq=100,  # Evaluate every 100 steps
         deterministic=True,
         render=False,
@@ -76,17 +78,17 @@ if __name__ == "__main__":
     )
 
     # 5. Train
-    print("Starting training...")
-    print("✅ Checkpoint callback: saves every 1000 steps")
+    print("Starting v4 training (continuing from v3 best model)...")
+    print("✅ Checkpoint callback: saves every 1000 steps to ./logs/v4/")
     print("✅ Eval callback: evaluates every 100 steps, saves best model")
     print()
     model.learn(
-        total_timesteps=200000, # Run for 200k steps
+        total_timesteps=300000, # Run for 300k more steps (v4 training)
         callback=[checkpoint_callback, eval_callback],
-        reset_num_timesteps=False,
-        tb_log_name="salp_robot_run1"
+        reset_num_timesteps=False,  # Continue from v3's timestep count
+        tb_log_name="salp_robot_v4_run1"
     )
 
     # 6. Save Final Model
-    model.save("salp_robot_model_v3_final")
-    print("Training finished. Model saved as: salp_robot_model_v3_final")
+    model.save("salp_robot_model_v4_final")
+    print("Training finished. Model saved as: salp_robot_model_v4_final")

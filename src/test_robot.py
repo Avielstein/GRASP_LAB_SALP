@@ -9,10 +9,12 @@ robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15,
 robot.nozzle.set_angles(angle1=0.0, angle2=0.0)
 env = SalpRobotEnv(render_mode="human", robot=robot)
 # Load the trained model from the new location
-# Option 1: Use the final trained model
-model = SAC.load("../data/models/v1/salp_robot_finalv2", env=env)
-# Option 2: Use the 200k checkpoint
-# model = SAC.load("../data/models/v1/checkpoints/salp_robot_model_200000_steps", env=env)
+# Option 1: Use the best v3 model (RECOMMENDED - best performing model)
+model = SAC.load("./logs/v3/best_model/best_model", env=env)
+# Option 2: Use the latest v3 checkpoint (400k steps)
+# model = SAC.load("./logs/v3/salp_robot_model_v3_400000_steps", env=env)
+# Option 3: Use the old v1 final model
+# model = SAC.load("../data/models/v1/salp_robot_finalv2", env=env)
 
 obs, _ = env.reset()
 env.start_recording()
