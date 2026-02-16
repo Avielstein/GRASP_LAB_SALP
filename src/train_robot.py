@@ -35,42 +35,17 @@ if __name__ == "__main__":
     print("Environment is valid!")
 
     # 3. Define the Model (SAC)
-    # V4: Continue training from v3 best model
-    print("Loading v3 best model to continue training as v4...")
-    model = SAC.load("./logs/v3/best_model/best_model", env=vec_env)
-    print("✅ v3 best model loaded successfully!")
-    
-    # Alternatively, start from scratch:
-    # model = SAC(
-    #     "MlpPolicy",           # Use standard Dense Neural Network
-    #     vec_env,
-    #     verbose=1,
-    #     tensorboard_log="./sac_salp_robot_tensorboard/",
-    #     
-    #     # --- Tuning for Robotics ---
-    #     learning_rate=3e-4,
-    #     buffer_size=100000,    # Big memory for off-policy
-    #     batch_size=512,        # Mini-batch size
-    #     ent_coef='auto',       # Automatically adjust exploration (Temperature)
-    #     gamma=0.99,            # Discount factor
-    #     tau=0.005,             # Polyak averaging (Soft update)
-    #     device="cuda" 
-    # )
+    # V2: Continue training from v1 best model with enhanced reward function
+    print("Loading v1 best model to continue training as v2...")
+    model = SAC.load("../experiments/v1/models/best_model/best_model", env=vec_env)
+    print("✅ v1 best model loaded successfully!")
 
-    # 4. Setup Saving (Checkpoints)
-    # Save the model every 1000 steps so you don't lose progress if it crashes.
-    checkpoint_callback = CheckpointCallback(
-        save_freq=1000,
-        save_path='./logs/v4/',
-        name_prefix='salp_robot_model_v4'
-    )
-    
-    # Setup Evaluation callback to save best model only
+    # 4. Setup Evaluation callback to save best model only
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path='./logs/v4/best_model/',
-        log_path='./logs/v4/eval_logs/',
-        eval_freq=100,  # Evaluate every 100 steps
+        best_model_save_path='../experiments/v2/models/best_model/',
+        log_path='../experiments/v2/logs/eval_logs/',
+        eval_freq=1000,  # Evaluate every 1000 steps
         deterministic=True,
         render=False,
         n_eval_episodes=5,  # Run 5 episodes for evaluation
@@ -78,17 +53,18 @@ if __name__ == "__main__":
     )
 
     # 5. Train
-    print("Starting v4 training (continuing from v3 best model)...")
-    print("✅ Checkpoint callback: saves every 1000 steps to ./logs/v4/")
-    print("✅ Eval callback: evaluates every 100 steps, saves best model")
+    print("Starting v2 training (continuing from v1 best model)...")
+    print("✅ Enhanced reward: Now includes r_cycle and r_energy")
+    print("✅ Eval callback: evaluates every 1000 steps, saves best model only")
+    print("✅ Training for 200k additional timesteps")
     print()
     model.learn(
-        total_timesteps=300000, # Run for 300k more steps (v4 training)
-        callback=[checkpoint_callback, eval_callback],
-        reset_num_timesteps=False,  # Continue from v3's timestep count
-        tb_log_name="salp_robot_v4_run1"
+        total_timesteps=200000,  # 200k additional timesteps for v2
+        callback=eval_callback,  # Only eval callback, no checkpoint callback
+        reset_num_timesteps=False,  # Continue from v1's timestep count
+        tb_log_name="salp_robot_v2"
     )
 
     # 6. Save Final Model
-    model.save("salp_robot_model_v4_final")
-    print("Training finished. Model saved as: salp_robot_model_v4_final")
+    model.save("../experiments/v2/models/salp_robot_v2_final")
+    print("Training finished. Model saved as: salp_robot_v2_final")

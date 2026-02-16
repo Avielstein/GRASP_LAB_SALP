@@ -239,8 +239,8 @@ class SalpRobotEnv(gym.Env):
         total_reward = (
             1.0 * r_track +      # Distance progress (most important)
             0.5 * r_heading +    # Heading alignment
-            1.0 * r_cycle +      # Time penalty (NEW - encourages fewer cycles)
-            0.2 * r_energy +     # Energy efficiency (NEW - encourages strong compressions)
+            1.0 * r_cycle +      # Time penalty (ENABLED for v2)
+            0.2 * r_energy +     # Energy efficiency (ENABLED for v2)
             1.0 * r_smooth       # Control smoothness
         )
         # print(total_reward)
