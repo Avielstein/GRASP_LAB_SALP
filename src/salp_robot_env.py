@@ -95,6 +95,16 @@ class SalpRobotEnv(gym.Env):
         # Interactive control state
         self.current_coast_time = 0.5
         self.current_compression = 0.0
+        
+        # Episode tracking for metrics
+        self.episode_start_position = None
+        self.episode_positions = []
+        self.episode_actions = []
+        self.episode_rewards = []
+        self.episode_reward_components = []
+        self.episode_distances_to_target = []
+        self.episode_velocities = []
+        self.initial_target_distance = 0.0
 
         self.reset()
     
@@ -110,6 +120,7 @@ class SalpRobotEnv(gym.Env):
         self.pos_init = np.array([self.width / 2, self.height / 2])
         self.prev_dist = np.linalg.norm(self.robot.position[0:-1] - self.target_point)
         self.prev_action = np.array([0.0, 0.0, 0.0])
+        self.action = np.array([0.0, 0.0, 0.0])
        
         # self.body_radius = self.base_radius  # Current body radius
         self.ellipse_a = self.robot.get_current_length()    # Semi-major axis for ellipse
@@ -124,6 +135,16 @@ class SalpRobotEnv(gym.Env):
         self._history_draw_index = 0
         self._history_loop = True
         self._history_step = 1
+        
+        # Reset episode tracking
+        self.episode_start_position = self.robot.position[0:-1].copy()
+        self.episode_positions = [self.robot.position[0:-1].copy()]
+        self.episode_actions = []
+        self.episode_rewards = []
+        self.episode_reward_components = []
+        self.episode_distances_to_target = [self.prev_dist]
+        self.episode_velocities = [np.linalg.norm(self.robot.velocity_world[0:-1])]
+        self.initial_target_distance = self.prev_dist
 
         return self._get_observation(), {}
 
@@ -138,7 +159,10 @@ class SalpRobotEnv(gym.Env):
         return rescaled
      
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-
+        # Store action for tracking
+        self.action = action.copy()
+        self.episode_actions.append(action.copy())
+        
         rescaled_action = self._rescale_action(action) 
 
         # print(f"Action taken: Inhale: {action[0]:.2f}, Coast Time: {action[1]:.2f}, Nozzle Yaw: {action[2]:.2f} rad")
@@ -169,14 +193,23 @@ class SalpRobotEnv(gym.Env):
                 self.cycle_nozzle_yaws = []
                 self._animation_complete = True
 
-        # Calculate reward
-        reward = self._calculate_reward()
+        # Track episode data
+        self.episode_positions.append(self.robot.position[0:-1].copy())
+        current_velocity = np.linalg.norm(self.robot.velocity_world[0:-1])
+        self.episode_velocities.append(current_velocity)
+        
+        distance_to_target = np.linalg.norm(self.robot.position[0:-1] - self.target_point)
+        self.episode_distances_to_target.append(distance_to_target)
+
+        # Calculate reward and track components
+        reward, reward_components = self._calculate_reward_with_components()
+        self.episode_rewards.append(reward)
+        self.episode_reward_components.append(reward_components)
         
         # Check termination
         done = False
         truncated = False
 
-        distance_to_target = np.linalg.norm(self.robot.position[0:-1] - self.target_point)
         if distance_to_target < self.target_radius:
             done = True
             reward += 10.0  # big reward for reaching target
@@ -189,14 +222,18 @@ class SalpRobotEnv(gym.Env):
             truncated = True
         
         observation = self._get_observation()
-        # print(f"Obs: {observation}")
-
-        # info = self._get_info()
+        
+        # Build info dict
         info = {
             'position_history': self.robot.position_history,
             'length_history': self.robot.length_history,
             'width_history': self.robot.width_history
         }
+        
+        # Add episode metrics when episode ends
+        if done or truncated:
+            episode_metrics = self._calculate_episode_metrics()
+            info.update(episode_metrics)
         
         self.prev_action = self.action
         return observation, reward, done, truncated, info
@@ -248,6 +285,91 @@ class SalpRobotEnv(gym.Env):
         # print(f"Reward components: Track={r_track:.3f}, Heading={r_heading:.3f}, Cycle={r_cycle:.3f}, Energy={r_energy:.3f}, Smoothness={r_smooth:.3f}, Total={total_reward:.3f}")
         
         return float(total_reward)
+    
+    def _calculate_reward_with_components(self) -> Tuple[float, Dict[str, float]]:
+        """Calculate reward and return individual components for logging."""
+        current_diff = self.robot.position[0:-1] - self.target_point
+        current_dist = np.linalg.norm(current_diff)
+        dist_improvement = - current_dist + self.prev_dist
+        r_track = dist_improvement * 100
+        self.prev_dist = current_dist
+        
+        error_direction = - (current_diff / (np.linalg.norm(current_diff) + 1e-6))
+        heading = self.robot.velocity_world[0:-1] / (np.linalg.norm(self.robot.velocity_world[0:-1]) + 1e-6)
+        r_heading = np.dot(heading, error_direction)
+        
+        r_cycle = -0.5
+        
+        compression = self.action[0] if len(self.action) > 0 else 0.0
+        r_energy = -0.1 * (1.0 - compression) ** 2
+        
+        nozzle_yaw = self.action[2] if len(self.action) > 2 else 0.0
+        angle_change = abs(nozzle_yaw - self.prev_action[2])
+        r_smooth = -0.1 * (angle_change ** 2)
+        
+        total_reward = (
+            1.0 * r_track + 0.5 * r_heading + 1.0 * r_cycle + 
+            0.2 * r_energy + 1.0 * r_smooth
+        )
+        
+        components = {
+            'r_track': float(r_track),
+            'r_heading': float(r_heading),
+            'r_cycle': float(r_cycle),
+            'r_energy': float(r_energy),
+            'r_smooth': float(r_smooth)
+        }
+        
+        return float(total_reward), components
+    
+    def _calculate_episode_metrics(self) -> Dict[str, Any]:
+        """Calculate comprehensive episode metrics for TensorBoard logging."""
+        metrics = {}
+        
+        # Navigation metrics
+        if len(self.episode_positions) > 1:
+            # Path length (sum of distances between consecutive positions)
+            path_length = sum(
+                np.linalg.norm(self.episode_positions[i+1] - self.episode_positions[i])
+                for i in range(len(self.episode_positions) - 1)
+            )
+            metrics['path_length'] = float(path_length)
+            
+            # Direct distance (straight line from start to end)
+            direct_distance = np.linalg.norm(
+                self.episode_positions[-1] - self.episode_start_position
+            )
+            metrics['direct_distance'] = float(direct_distance)
+            
+            # Path efficiency
+            if path_length > 0:
+                metrics['path_efficiency'] = float(direct_distance / path_length)
+            else:
+                metrics['path_efficiency'] = 0.0
+        
+        # Final and initial distances to target
+        metrics['final_distance'] = float(self.episode_distances_to_target[-1]) if self.episode_distances_to_target else 0.0
+        metrics['initial_distance'] = float(self.initial_target_distance)
+        
+        # Action statistics
+        if len(self.episode_actions) > 0:
+            actions_array = np.array(self.episode_actions)
+            metrics['avg_compression'] = float(np.mean(actions_array[:, 0]))
+            metrics['avg_coast_time'] = float(np.mean(actions_array[:, 1]))
+            metrics['avg_nozzle_angle'] = float(np.mean(np.abs(actions_array[:, 2])))
+        
+        # Velocity statistics
+        if len(self.episode_velocities) > 0:
+            metrics['avg_velocity'] = float(np.mean(self.episode_velocities))
+        
+        # Reward component averages
+        if len(self.episode_reward_components) > 0:
+            for key in ['r_track', 'r_heading', 'r_cycle', 'r_energy', 'r_smooth']:
+                values = [comp[key] for comp in self.episode_reward_components if key in comp]
+                if values:
+                    metrics[f'avg_{key}'] = float(np.mean(values))
+        
+        return metrics
     
     def generate_target_point(self, strategy: str = "random", 
                              center: Optional[np.ndarray] = None,

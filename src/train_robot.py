@@ -2,9 +2,10 @@ from stable_baselines3 import SAC
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, CallbackList
 from salp_robot_env import SalpRobotEnv
 from robot import Robot, Nozzle
+from tensorboard_callback import DetailedMetricsCallback
 import numpy as np
 
 def make_env():
@@ -23,48 +24,102 @@ if __name__ == "__main__":
 
     num_cpu = 8
     vec_env = make_vec_env(make_env, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
-    
-    # Create separate evaluation environment
-    eval_env = make_env()
+
 
     # 2. Sanity Check (CRITICAL)
     # This checks if your observation/action spaces match what the step() function returns.
     # It will crash here if you made a mistake, saving you hours of debugging.
-    print("Checking environment...")
+    # print("Checking environment...")
     # check_env(env)
+
+
+    
+    # Create separate evaluation environment
+    eval_env = make_env()
     print("Environment is valid!")
 
-    # 3. Define the Model (SAC)
-    # V2: Continue training from v1 best model with enhanced reward function
-    print("Loading v1 best model to continue training as v2...")
-    model = SAC.load("../experiments/v1/models/best_model/best_model", env=vec_env)
-    print("✅ v1 best model loaded successfully!")
 
-    # 4. Setup Evaluation callback to save best model only
+  
+    # # V2: Continue training from v1 best model with enhanced reward function
+    # print("Loading v1 best model to continue training as v2...")
+    # model = SAC.load("../experiments/v1/models/best_model/best_model", env=vec_env)
+    # print("✅ v1 best model loaded successfully!")
+
+
+
+    # 3. Define the Model (SAC) - V3: Training from scratch with detailed metrics
+    print("="*70)
+    print("TRAINING VERSION 3 - From Scratch with Detailed Metrics")
+    print("="*70)
+    print("\nInitializing new SAC model...")
+    model = SAC(
+        "MlpPolicy",
+        vec_env,
+        verbose=1,
+        tensorboard_log='../experiments/v3/logs',
+        learning_rate=3e-4,
+        buffer_size=100000,
+        learning_starts=1000,
+        batch_size=256,
+        tau=0.005,
+        gamma=0.99,
+        train_freq=1,
+        gradient_steps=1,
+        device="auto"
+    )
+    print("✅ Model initialized from scratch!")
+
+    # 4. Setup Callbacks with Detailed Metrics
+    print("\nSetting up callbacks...")
+    
+    # Detailed metrics callback (logs custom metrics every 1000 steps)
+    metrics_callback = DetailedMetricsCallback(log_freq=1000, verbose=1)
+    
+    # Evaluation callback (saves best model)
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path='../experiments/v2/models/best_model/',
-        log_path='../experiments/v2/logs/eval_logs/',
-        eval_freq=1000,  # Evaluate every 1000 steps
+        best_model_save_path='../experiments/v3/models/best_model/',
+        log_path='../experiments/v3/logs/eval_logs/',
+        eval_freq=5000,  # Evaluate every 5000 steps
         deterministic=True,
         render=False,
-        n_eval_episodes=5,  # Run 5 episodes for evaluation
+        n_eval_episodes=5,
         verbose=1
     )
+    
+    # Checkpoint callback (save model periodically)
+    checkpoint_callback = CheckpointCallback(
+        save_freq=50000,  # Save every 50k steps
+        save_path='../experiments/v3/models/',
+        name_prefix="salp_robot_v3",
+        verbose=1
+    )
+    
+    # Combine callbacks
+    callback_list = CallbackList([metrics_callback, eval_callback, checkpoint_callback])
+    
+    print("✅ Callbacks configured:")
+    print("   - Detailed metrics logged every 1000 steps")
+    print("   - Evaluation every 5000 steps")
+    print("   - Checkpoints every 50000 steps")
 
     # 5. Train
-    print("Starting v2 training (continuing from v1 best model)...")
-    print("✅ Enhanced reward: Now includes r_cycle and r_energy")
-    print("✅ Eval callback: evaluates every 1000 steps, saves best model only")
-    print("✅ Training for 200k additional timesteps")
-    print()
+    print("\n" + "="*70)
+    print("STARTING TRAINING - 400k timesteps")
+    print("="*70)
+    print("📊 Monitor progress: tensorboard --logdir ../experiments/v3/logs")
+    print("📖 See METRICS.md for metric documentation")
+    print("="*70 + "\n")
+    
     model.learn(
-        total_timesteps=200000,  # 200k additional timesteps for v2
-        callback=eval_callback,  # Only eval callback, no checkpoint callback
-        reset_num_timesteps=False,  # Continue from v1's timestep count
-        tb_log_name="salp_robot_v2"
+        total_timesteps=400000,
+        callback=callback_list,
+        tb_log_name="salp_robot_v3",
+        progress_bar=True
     )
 
     # 6. Save Final Model
-    model.save("../experiments/v2/models/salp_robot_v2_final")
-    print("Training finished. Model saved as: salp_robot_v2_final")
+    print("\n✅ Training complete!")
+    model.save("../experiments/v3/models/salp_robot_v3_final")
+    print("💾 Final model saved: salp_robot_v3_final")
+    print("💾 Best model saved: ../experiments/v3/models/best_model/")
