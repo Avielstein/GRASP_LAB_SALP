@@ -47,27 +47,30 @@ if __name__ == "__main__":
 
 
 
-    # 3. Define the Model (SAC) - V3: Training from scratch with detailed metrics
+    # 3. Define the Model (SAC) - V4: Continue from v3 with Fixed Rewards
     print("="*70)
-    print("TRAINING VERSION 3 - From Scratch with Detailed Metrics")
+    print("TRAINING VERSION 4 - Continue from v3 with Fixed Rewards")
     print("="*70)
-    print("\nInitializing new SAC model...")
-    model = SAC(
-        "MlpPolicy",
-        vec_env,
-        verbose=1,
-        tensorboard_log='../experiments/v3/logs',
-        learning_rate=3e-4,
-        buffer_size=100000,
-        learning_starts=1000,
-        batch_size=256,
-        tau=0.005,
-        gamma=0.99,
-        train_freq=1,
-        gradient_steps=1,
-        device="auto"
-    )
-    print("✅ Model initialized from scratch!")
+    print("\n🔧 Reward Structure Fixed:")
+    print("   - Success bonus: +10 → +500 (50x increase!)")
+    print("   - Failure penalty: -5 → -200 (40x increase)")
+    print("   - Timeout penalty: 0 → -50 (new)")
+    print("\n📈 Expected: Success rate 10% → 60-80%")
+    print("="*70 + "\n")
+    
+    print("Loading v3 best model to continue training as v4...")
+    model = SAC.load("../experiments/v3/models/best_model/best_model", env=vec_env)
+    print("✅ v3 best model loaded!")
+    
+    # OPTION: Train from scratch (comment out above 2 lines, uncomment below)
+    # model = SAC(
+    #     "MlpPolicy", vec_env, verbose=1,
+    #     tensorboard_log='../experiments/v4/logs',
+    #     learning_rate=3e-4, buffer_size=100000,
+    #     learning_starts=1000, batch_size=256,
+    #     tau=0.005, gamma=0.99,
+    #     train_freq=1, gradient_steps=1, device="auto"
+    # )
 
     # 4. Setup Callbacks with Detailed Metrics
     print("\nSetting up callbacks...")
@@ -78,8 +81,8 @@ if __name__ == "__main__":
     # Evaluation callback (saves best model)
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path='../experiments/v3/models/best_model/',
-        log_path='../experiments/v3/logs/eval_logs/',
+        best_model_save_path='../experiments/v4/models/best_model/',
+        log_path='../experiments/v4/logs/eval_logs/',
         eval_freq=5000,  # Evaluate every 5000 steps
         deterministic=True,
         render=False,
@@ -90,8 +93,8 @@ if __name__ == "__main__":
     # Checkpoint callback (save model periodically)
     checkpoint_callback = CheckpointCallback(
         save_freq=50000,  # Save every 50k steps
-        save_path='../experiments/v3/models/',
-        name_prefix="salp_robot_v3",
+        save_path='../experiments/v4/models/',
+        name_prefix="salp_robot_v4",
         verbose=1
     )
     
@@ -105,21 +108,21 @@ if __name__ == "__main__":
 
     # 5. Train
     print("\n" + "="*70)
-    print("STARTING TRAINING - 400k timesteps")
+    print("STARTING TRAINING - 200k timesteps")
     print("="*70)
-    print("📊 Monitor progress: tensorboard --logdir ../experiments/v3/logs")
+    print("📊 Monitor progress: tensorboard --logdir ../experiments/v4/logs")
     print("📖 See METRICS.md for metric documentation")
     print("="*70 + "\n")
     
     model.learn(
-        total_timesteps=400000,
+        total_timesteps=200000,
         callback=callback_list,
-        tb_log_name="salp_robot_v3",
+        tb_log_name="salp_robot_v4",
         progress_bar=True
     )
 
     # 6. Save Final Model
     print("\n✅ Training complete!")
-    model.save("../experiments/v3/models/salp_robot_v3_final")
-    print("💾 Final model saved: salp_robot_v3_final")
-    print("💾 Best model saved: ../experiments/v3/models/best_model/")
+    model.save("../experiments/v4/models/salp_robot_v4_final")
+    print("💾 Final model saved: salp_robot_v4_final")
+    print("💾 Best model saved: ../experiments/v4/models/best_model/")

@@ -37,7 +37,7 @@ class SalpRobotEnv(gym.Env):
         self.height = height
         self.pos_init = np.array([width / 2, height / 2])  # Start in center
         self.tank_margin = 50
-        self.target_radius = 0.05  # Target reach radius in meters (5cm tolerance)
+        self.target_radius = 0.2  # Target reach radius in meters (20cm tolerance) - v4 increased from 0.05m
         
         # Pygame setup
         self.render_mode = render_mode
@@ -210,16 +210,18 @@ class SalpRobotEnv(gym.Env):
         done = False
         truncated = False
 
+        # V4: BIG terminal bonuses to make success clearly the best outcome!
         if distance_to_target < self.target_radius:
             done = True
-            reward += 10.0  # big reward for reaching target
+            reward += 500.0  # HUGE success bonus! (was 10.0)
         elif distance_to_target > 5.0:
             truncated = True
-            reward -= 5.0  # penalty for going out of bounds
+            reward -= 200.0  # BIG failure penalty (was -5.0)
 
         # reset after a certain number of steps
         if self.robot.cycle >= 500:
             truncated = True
+            reward -= 50.0  # Penalty for timeout
         
         observation = self._get_observation()
         
