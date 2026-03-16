@@ -31,41 +31,42 @@ if __name__ == "__main__":
     # check_env(env)
     print("Environment is valid!")
 
-    # 3. Define the Model (SAC)
-    model = SAC(
-        "MlpPolicy",           # Use standard Dense Neural Network
-        vec_env,
-        verbose=1,
-        tensorboard_log="./sac_salp_robot_tensorboard/",
+    # 3. Define the model (SAC)
+    # model = SAC(
+    #     "MlpPolicy",           # Use standard Dense Neural Network
+    #     vec_env,
+    #     verbose=1,
+    #     tensorboard_log="./sac_salp_robot_tensorboard/",
         
-        # --- Tuning for Robotics ---
-        learning_rate=3e-4,
-        buffer_size=100000,    # Big memory for off-policy
-        batch_size=512,        # Mini-batch size
-        ent_coef='auto',       # Automatically adjust exploration (Temperature)
-        gamma=0.99,            # Discount factor
-        tau=0.005,             # Polyak averaging (Soft update)
-        device="cuda" 
-    )
-    # model = SAC.load("./salp_robot_final", env=vec_env)
+    #     # --- Tuning for Robotics ---
+    #     learning_rate=3e-4,
+    #     buffer_size=100000,    # Big memory for off-policy
+    #     batch_size=512,        # Mini-batch size
+    #     ent_coef='auto',       # Automatically adjust exploration (Temperature)
+    #     gamma=0.99,            # Discount factor
+    #     tau=0.005,             # Polyak averaging (Soft update)
+    #     device="cuda" 
+    # )
+    model = SAC.load("./salp_robot_final_roll_back", env=vec_env)
+    # model.learning_rate = 1e-3  # Reset learning rate when loading
 
     # 4. Setup Saving (Checkpoints)
     # Save the model every 10,000 steps so you don't lose progress if it crashes.
     checkpoint_callback = CheckpointCallback(
-        save_freq= 5000,
+        save_freq= 10000,
         save_path='./logs/',
-        name_prefix='salp_robot_model'
+        name_prefix='salp_robot_model_roll_back'
     )
-
+    
     # 5. Train
     print("Starting training...")
     model.learn(
-        total_timesteps=200000, # Run for 200k steps
+        total_timesteps=400000, # Run for 400k steps
         callback=checkpoint_callback,
         reset_num_timesteps=False,
-        tb_log_name="salp_robot_run1"
+        tb_log_name="salp_robot_run_roll_back"
     )
 
     # 6. Save Final Model
-    model.save("salp_robot_finalv2")
+    model.save("salp_robot_final_roll_backv2")
     print("Training finished.")
