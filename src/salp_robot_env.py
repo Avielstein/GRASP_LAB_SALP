@@ -29,7 +29,7 @@ class SalpRobotEnv(gym.Env):
     
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
     
-    def __init__(self, render_mode: Optional[str] = None, width: int = 900, height: int = 700, robot: Optional[Robot] = None):
+    def __init__(self, render_mode: Optional[str] = None, width: int = 900, height: int = 700, robot: Optional[Robot] = None, num_obstacles: int = 2, obstacle_radius: float = 0.2):
         super().__init__()
         
         # Environment parameters
@@ -38,6 +38,11 @@ class SalpRobotEnv(gym.Env):
         self.pos_init = np.array([width / 2, height / 2])  # Start in center
         self.tank_margin = 50
         self.target_radius = 0.2  # Target reach radius in meters (20cm tolerance) - v4 increased from 0.05m
+
+        # Obstacle parameters
+        self.num_obstacles = num_obstacles
+        self.obstacle_radius = obstacle_radius
+        self.obstacles: List[np.ndarray] = []  # populated in reset()
         
         # Pygame setup
         self.render_mode = render_mode
@@ -55,19 +60,11 @@ class SalpRobotEnv(gym.Env):
             dtype=np.float32
         )
         
-        scale = 20.0  # pixels per meter
-        # Observation space:
-        # pos_x_limits = [(-self.width + self.tank_margin) / 2 / scale, (self.width - self.tank_margin) / 2 / scale]
-        # pos_y_limits = [(-self.height + self.tank_margin) / 2 / scale, (self.height - self.tank_margin) / 2 / scale]
-        pos_x_limits = [-np.inf, np.inf]
-        pos_y_limits = [-np.inf, np.inf]
-        vel_x_limits = [-np.inf, np.inf]
-        vel_y_limits = [-np.inf, np.inf]
-        yaw_limits = [-np.inf, np.inf]
-        angular_vel_limits = [-np.inf, np.inf] 
+        # Observation space: 6 base dims + 2 dims per obstacle (relative x, y)
+        obs_dim = 6 + 2 * self.num_obstacles
         self.observation_space = spaces.Box(
-            low=np.array([pos_x_limits[0], pos_y_limits[0], vel_x_limits[0], vel_y_limits[0], yaw_limits[0], angular_vel_limits[0]]),
-            high=np.array([pos_x_limits[1], pos_y_limits[1], vel_x_limits[1], vel_y_limits[1], yaw_limits[1], angular_vel_limits[1]]),
+            low=np.full(obs_dim, -np.inf, dtype=np.float32),
+            high=np.full(obs_dim, np.inf, dtype=np.float32),
             dtype=np.float32
         )
         # Movement history for the current action/breathing cycle (robot-frame meters)
@@ -114,6 +111,9 @@ class SalpRobotEnv(gym.Env):
         # initialize a target point
         self.target_point = self.generate_target_point(strategy="random")
         # print(f"New target point: ({self.target_point[0]:.2f}, {self.target_point[1]:.2f}) meters")
+
+        # place obstacles for this episode
+        self._generate_obstacles()
         
         # Reset robot to center
         self.robot.reset()
@@ -206,6 +206,9 @@ class SalpRobotEnv(gym.Env):
         self.episode_rewards.append(reward)
         self.episode_reward_components.append(reward_components)
         
+        # Check obstacle collision
+        hit_obstacle = self._check_obstacle_collision()
+
         # Check termination
         done = False
         truncated = False
@@ -217,6 +220,10 @@ class SalpRobotEnv(gym.Env):
         elif distance_to_target > 5.0:
             truncated = True
             reward -= 200.0  # BIG failure penalty (was -5.0)
+
+        if hit_obstacle:
+            truncated = True
+            reward -= 200.0  # Same magnitude as out-of-bounds penalty
 
         # reset after a certain number of steps
         if self.robot.cycle >= 500:
@@ -309,19 +316,29 @@ class SalpRobotEnv(gym.Env):
         angle_change = abs(nozzle_yaw - self.prev_action[2])
         r_smooth = -0.1 * (angle_change ** 2)
         
+        # Obstacle proximity penalty (soft repulsion within 2x obstacle radius)
+        r_obstacle = 0.0
+        if self.obstacles:
+            robot_pos = self.robot.position[0:-1]
+            min_dist = min(np.linalg.norm(robot_pos - o) for o in self.obstacles)
+            danger_zone = 2.0 * self.obstacle_radius
+            if min_dist < danger_zone:
+                r_obstacle = -1.0 * (1.0 - min_dist / danger_zone)
+
         total_reward = (
-            1.0 * r_track + 0.5 * r_heading + 1.0 * r_cycle + 
-            0.2 * r_energy + 1.0 * r_smooth
+            1.0 * r_track + 0.5 * r_heading + 1.0 * r_cycle +
+            0.2 * r_energy + 1.0 * r_smooth + 1.0 * r_obstacle
         )
-        
+
         components = {
             'r_track': float(r_track),
             'r_heading': float(r_heading),
             'r_cycle': float(r_cycle),
             'r_energy': float(r_energy),
-            'r_smooth': float(r_smooth)
+            'r_smooth': float(r_smooth),
+            'r_obstacle': float(r_obstacle),
         }
-        
+
         return float(total_reward), components
     
     def _calculate_episode_metrics(self) -> Dict[str, Any]:
@@ -366,7 +383,7 @@ class SalpRobotEnv(gym.Env):
         
         # Reward component averages
         if len(self.episode_reward_components) > 0:
-            for key in ['r_track', 'r_heading', 'r_cycle', 'r_energy', 'r_smooth']:
+            for key in ['r_track', 'r_heading', 'r_cycle', 'r_energy', 'r_smooth', 'r_obstacle']:
                 values = [comp[key] for comp in self.episode_reward_components if key in comp]
                 if values:
                     metrics[f'avg_{key}'] = float(np.mean(values))
@@ -459,6 +476,41 @@ class SalpRobotEnv(gym.Env):
         
         return target.astype(np.float32)
     
+    def _generate_obstacles(self):
+        """Randomly place circular obstacles, keeping them away from start (0,0) and target."""
+        scale = 200.0
+        x_min = (-self.width / 2 + self.tank_margin) / scale
+        x_max = (self.width / 2 - self.tank_margin) / scale
+        y_min = (-self.height / 2 + self.tank_margin) / scale
+        y_max = (self.height / 2 - self.tank_margin) / scale
+        min_clear = 0.5  # meters clearance from start and target
+
+        self.obstacles = []
+        for _ in range(self.num_obstacles):
+            for _attempt in range(200):
+                pos = np.array([
+                    np.random.uniform(x_min, x_max),
+                    np.random.uniform(y_min, y_max),
+                ], dtype=np.float32)
+                dist_start = np.linalg.norm(pos)
+                dist_target = np.linalg.norm(pos - self.target_point)
+                too_close_other = any(
+                    np.linalg.norm(pos - o) < 2 * self.obstacle_radius + 0.1
+                    for o in self.obstacles
+                )
+                if dist_start > min_clear and dist_target > min_clear and not too_close_other:
+                    self.obstacles.append(pos)
+                    break
+
+    def _check_obstacle_collision(self) -> bool:
+        """Return True if the robot currently overlaps any obstacle."""
+        robot_pos = self.robot.position[0:-1]
+        robot_half = self.robot.get_current_length() / 2
+        for obs in self.obstacles:
+            if np.linalg.norm(robot_pos - obs) < (self.obstacle_radius + robot_half):
+                return True
+        return False
+
     def sample_random_action(self) -> np.ndarray:
         """
         Sample a random action from the action space.
@@ -529,6 +581,17 @@ class SalpRobotEnv(gym.Env):
         dist_label_rect = dist_label.get_rect(midtop=(target_screen_x, target_screen_y + target_radius + 10))
         self.screen.blit(dist_label, dist_label_rect)
     
+    def _draw_obstacles(self, scale: float = 200):
+        """Draw circular obstacles as filled orange circles with a bright outline."""
+        if self.screen is None:
+            return
+        for obs in self.obstacles:
+            cx = int(self.pos_init[0] + obs[0] * scale)
+            cy = int(self.pos_init[1] + obs[1] * scale)
+            r_px = max(4, int(self.obstacle_radius * scale))
+            pygame.draw.circle(self.screen, (180, 80, 0), (cx, cy), r_px)
+            pygame.draw.circle(self.screen, (255, 140, 0), (cx, cy), r_px, 3)
+
     def _get_observation(self) -> np.ndarray:
         """Get current observation."""
         # Map breathing phase to number
@@ -542,14 +605,19 @@ class SalpRobotEnv(gym.Env):
         #     self.robot.angular_velocity[2],  # Normalized angular velocity
         # ], dtype=np.float32))
 
-        return np.array([
+        obs_parts = [
             self.robot.position[0] - self.target_point[0],  # Normalized position
             self.robot.position[1] - self.target_point[1],
             self.robot.velocity[0],  # Normalized velocity
             self.robot.velocity[1],
             self.robot.euler_angle[2],  # Normalized body angle
             self.robot.angular_velocity[2],  # Normalized angular velocity
-        ], dtype=np.float32)
+        ]
+        # Append relative position of each obstacle (robot → obstacle vector)
+        for obs in self.obstacles:
+            obs_parts.append(float(obs[0] - self.robot.position[0]))
+            obs_parts.append(float(obs[1] - self.robot.position[1]))
+        return np.array(obs_parts, dtype=np.float32)
     
     def _get_info(self) -> Dict:
         """Get additional information."""
@@ -1103,6 +1171,7 @@ class SalpRobotEnv(gym.Env):
         # draw a small reference frame at the tank center (x/y axes)
         self._draw_reference_frame(scale)
 
+        self._draw_obstacles(scale)
         self._draw_target_point(scale)
         # draw historical path and sized ellipses
         # draw real-time animated history of the current cycle
