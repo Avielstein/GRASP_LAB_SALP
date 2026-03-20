@@ -1,0 +1,43 @@
+# Single Food Navigation Experiment
+# Agent learns to navigate to one target at a time
+
+environment:
+  name: salp_single_food
+  type: salp_snake
+  width: 800
+  height: 600
+  params:
+    num_food_items: 1
+    food_reward: 1000.0
+    collision_penalty: -10.0
+    time_penalty: -0.1
+    proximity_reward_weight: 5.0
+    respawn_food: true
+    forced_breathing: true
+    max_steps_without_food: 1500
+    efficiency_bonus: 0.0
+
+agent:
+  name: sac_single_food
+  type: sac
+  hidden_sizes: [256, 256]
+  learning_rate: 0.0003
+  batch_size: 128
+  buffer_size: 500000
+  gamma: 0.99
+  tau: 0.005
+  params:
+    alpha: 0.5
+    target_entropy: -0.5
+    alpha_lr: 0.0003
+
+training:
+  max_episodes: 1000
+  max_steps_per_episode: 1500
+  eval_frequency: 25
+  save_frequency: 50
+  start_training_after: 500
+  experiment_name: single_food_navigation
+
+gail:
+  use_gail: false

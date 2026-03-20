@@ -1,0 +1,54 @@
+# Default SALP Training Configuration
+# Override any values by creating a new config file or passing --config
+
+environment:
+  name: salp_snake
+  type: salp_snake
+  width: 800
+  height: 600
+  params:
+    num_food_items: 12
+    food_reward: 15.0
+    collision_penalty: -30.0
+    time_penalty: -0.05
+    efficiency_bonus: 2.0
+    forced_breathing: true
+
+agent:
+  name: sac_salp
+  type: sac
+  hidden_sizes: [256, 256]
+  activation: relu
+  learning_rate: 0.0003
+  batch_size: 128
+  buffer_size: 500000
+  gamma: 0.99
+  tau: 0.005
+  params:
+    alpha: 0.1
+    target_entropy: -1.0
+    alpha_lr: 0.0003
+
+training:
+  max_episodes: 1000
+  max_steps_per_episode: 5000
+  eval_frequency: 25
+  save_frequency: 50
+  start_training_after: 500
+  train_frequency: 1
+  target_update_frequency: 1
+  log_dir: data/logs
+  model_dir: data/models
+  experiment_name: salp_training
+
+# GAIL configuration (optional)
+gail:
+  use_gail: false
+  expert_demos_path: data/expert_demos
+  discriminator_lr: 0.0003
+  discriminator_update_freq: 1
+  reward_env_weight: 0.3
+  reward_gail_weight: 0.7
+  min_expert_episodes: 5
+  load_human_demos: true
+  load_agent_demos: false

@@ -4,4 +4,5 @@ numpy>=1.26.0
 torch>=2.0.0
 torchvision>=0.15.0
 stable-baselines3[extra]>=2.0.0
+sb3-contrib>=2.0.0
 pyyaml>=6.0
