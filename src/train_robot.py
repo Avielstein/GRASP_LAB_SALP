@@ -1,3 +1,4 @@
+import argparse
 from stable_baselines3 import SAC
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -11,7 +12,7 @@ import numpy as np
 def make_env():
     # Create and return the SalpRobotEnv environment
     nozzle = Nozzle(length1=0.05, length2=0.05, length3=0.05, area=0.00016, mass=1.0)
-    robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15, 
+    robot = Robot(dry_mass=1.0, init_length=0.3, init_width=0.15,
                     max_contraction=0.06, nozzle=nozzle)
     robot.nozzle.set_angles(angle1=0.0, angle2=0.0)  # set nozzle angles
     robot.set_environment(density=1000)  # water density in kg/m^3
@@ -22,103 +23,89 @@ def make_env():
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(description="Train SAC agent for salp robot")
+    parser.add_argument("--version", type=str, default="v6",
+                        help="Experiment version label (e.g. v6). Controls all output paths.")
+    parser.add_argument("--warm-start", type=str, default=None,
+                        help="Path to a .zip model to warm-start from. If omitted, trains from scratch.")
+    args = parser.parse_args()
+
+    version = args.version
+
     num_cpu = 8
     vec_env = make_vec_env(make_env, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
 
-
-    # 2. Sanity Check (CRITICAL)
-    # This checks if your observation/action spaces match what the step() function returns.
-    # It will crash here if you made a mistake, saving you hours of debugging.
-    # print("Checking environment...")
-    # check_env(env)
-
-
-    
     # Create separate evaluation environment
     eval_env = make_env()
     print("Environment is valid!")
 
-
-  
-    # # V2: Continue training from v1 best model with enhanced reward function
-    # print("Loading v1 best model to continue training as v2...")
-    # model = SAC.load("../experiments/v1/models/best_model/best_model", env=vec_env)
-    # print("✅ v1 best model loaded successfully!")
-
-
-
-    # 3. Define the Model (SAC) - V5: Train from scratch with obstacle avoidance
     print("="*70)
-    print("TRAINING VERSION 5 - Obstacle Avoidance (train from scratch)")
-    print("="*70)
-    print("\n🆕 New Features:")
-    print("   - 2 circular obstacles per episode (radius 0.2m)")
-    print("   - Observation space: 6D → 10D (+ 2 dims per obstacle)")
-    print("   - Collision penalty: -200 (episode ends)")
-    print("   - Proximity shaping: up to -1.0 within 0.4m of obstacle")
-    print("\n📈 Training from scratch (obs space changed, old model incompatible)")
-    print("="*70 + "\n")
+    if args.warm_start:
+        print(f"TRAINING {version.upper()} - Warm-start from: {args.warm_start}")
+        print("="*70)
+        print(f"\nLoading model to warm-start {version} training...")
+        model = SAC.load(args.warm_start, env=vec_env)
+        print(f"✅ Warm-start model loaded successfully!")
+    else:
+        print(f"TRAINING {version.upper()} - Training from scratch")
+        print("="*70)
+        model = SAC(
+            "MlpPolicy", vec_env, verbose=1,
+            tensorboard_log=f'../experiments/{version}/logs',
+            learning_rate=3e-4, buffer_size=100000,
+            learning_starts=1000, batch_size=256,
+            tau=0.005, gamma=0.99,
+            train_freq=1, gradient_steps=1, device="auto"
+        )
 
-    model = SAC(
-        "MlpPolicy", vec_env, verbose=1,
-        tensorboard_log='../experiments/v5/logs',
-        learning_rate=3e-4, buffer_size=100000,
-        learning_starts=1000, batch_size=256,
-        tau=0.005, gamma=0.99,
-        train_freq=1, gradient_steps=1, device="auto"
-    )
+    # Set tensorboard log dir (needed for warm-start case where model was already created)
+    model.tensorboard_log = f'../experiments/{version}/logs'
 
-    # 4. Setup Callbacks with Detailed Metrics
+    # Setup Callbacks with Detailed Metrics
     print("\nSetting up callbacks...")
-    
-    # Detailed metrics callback (logs custom metrics every 1000 steps)
+
     metrics_callback = DetailedMetricsCallback(log_freq=1000, verbose=1)
-    
-    # Evaluation callback (saves best model)
+
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path='../experiments/v5/models/best_model/',
-        log_path='../experiments/v5/logs/eval_logs/',
-        eval_freq=5000,  # Evaluate every 5000 steps
+        best_model_save_path=f'../experiments/{version}/models/best_model/',
+        log_path=f'../experiments/{version}/logs/eval_logs/',
+        eval_freq=5000,
         deterministic=True,
         render=False,
         n_eval_episodes=5,
         verbose=1
     )
-    
-    # Checkpoint callback (save model periodically)
+
     checkpoint_callback = CheckpointCallback(
-        save_freq=50000,  # Save every 50k steps
-        save_path='../experiments/v5/models/',
-        name_prefix="salp_robot_v5",
+        save_freq=50000,
+        save_path=f'../experiments/{version}/models/',
+        name_prefix=f"salp_robot_{version}",
         verbose=1
     )
-    
-    # Combine callbacks
+
     callback_list = CallbackList([metrics_callback, eval_callback, checkpoint_callback])
-    
+
     print("✅ Callbacks configured:")
     print("   - Detailed metrics logged every 1000 steps")
     print("   - Evaluation every 5000 steps")
     print("   - Checkpoints every 50000 steps")
 
-    # 5. Train
     print("\n" + "="*70)
     print("STARTING TRAINING - 200k timesteps")
     print("="*70)
-    print("📊 Monitor progress: tensorboard --logdir ../experiments/v5/logs")
+    print(f"📊 Monitor progress: tensorboard --logdir ../experiments/{version}/logs")
     print("📖 See METRICS.md for metric documentation")
     print("="*70 + "\n")
-    
+
     model.learn(
         total_timesteps=200000,
         callback=callback_list,
-        tb_log_name="salp_robot_v5",
+        tb_log_name=f"salp_robot_{version}",
         progress_bar=True
     )
 
-    # 6. Save Final Model
-    print("\n✅ Training complete!")
-    model.save("../experiments/v5/models/salp_robot_v5_final")
-    print("💾 Final model saved: salp_robot_v5_final")
-    print("💾 Best model saved: ../experiments/v5/models/best_model/")
+    model.save(f"../experiments/{version}/models/salp_robot_{version}_final")
+    print(f"\n✅ Training complete!")
+    print(f"💾 Final model saved: salp_robot_{version}_final")
+    print(f"💾 Best model saved: ../experiments/{version}/models/best_model/")
