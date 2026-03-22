@@ -21,7 +21,10 @@ def compute_angular_acceleration_jit(inertia_matrix, jet_torque, drag_torque, co
 def to_euler_angle_rate_jit(euler_angle, angular_velocity):
     """Fast compiled conversion to Euler angle rates."""
     phi, theta, _ = euler_angle
-    
+
+    # Clamp pitch to avoid gimbal lock singularity at ±π/2
+    theta = max(-1.5, min(1.5, theta))
+
     # Pre-allocate array for speed
     T = np.array([
         [1.0, np.sin(phi) * np.tan(theta), np.cos(phi) * np.tan(theta)],

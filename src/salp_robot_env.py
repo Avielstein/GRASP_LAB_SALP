@@ -207,7 +207,18 @@ class SalpRobotEnv(gym.Env):
         self.robot.nozzle.set_yaw_angle(yaw_angle = rescaled_action[2])  # Map -1 to 1 to -pi/2 to pi/2
         self.robot.nozzle.solve_angles()
         self.robot.set_control(rescaled_action[0], rescaled_action[1], np.array([self.robot.nozzle.angle1, self.robot.nozzle.angle2]))  # contraction, coast_time, nozzle angle
-        self.robot.step_through_cycle()
+        try:
+            self.robot.step_through_cycle()
+        except Exception:
+            obs, _ = self.reset()
+            return obs, -500.0, False, True, {}
+
+        # Detect numerical blow-up before it propagates
+        v_norm = np.linalg.norm(self.robot.velocity)
+        w_norm = np.linalg.norm(self.robot.angular_velocity)
+        if not np.isfinite(v_norm) or not np.isfinite(w_norm) or v_norm > 50.0 or w_norm > 50.0:
+            obs, _ = self.reset()
+            return obs, -500.0, False, True, {}
 
         # store the most recent breathing-cycle histories (meters)
         if self.render_mode == "human":
