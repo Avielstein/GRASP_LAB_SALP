@@ -457,45 +457,57 @@ class SalpRobotEnv(gym.Env):
         
         return metrics
     
-    def generate_target_point(self, strategy: str = "random", 
+    def generate_target_point(self, strategy: str = "random",
                              center: Optional[np.ndarray] = None,
+                             min_distance: float = 0.5,
                              max_distance: float = 2.0) -> np.ndarray:
         """
         Generate a target point for the robot to reach.
-        
+
         Args:
             strategy: Target generation strategy:
-                - "random": Uniform random point within tank bounds
+                - "random": Uniform random point within tank bounds, between min/max distance from start
                 - "relative": Point relative to robot's current position
                 - "circle": Point on a circle around a center point
                 - "corridor": Point along a horizontal corridor
-                
-            center: Center point for relative/circle strategies. 
+
+            center: Center point for relative/circle strategies.
                    Defaults to robot's current position or tank center.
-                   
+
+            min_distance: Minimum distance from start (0,0) for "random" strategy. Default 0.5 m.
+
             max_distance: Maximum distance from center (for relative/circle strategies).
                          Default is 2.0 meters.
-        
+
         Returns:
             Target point as [x, y] in meters (robot frame coordinates)
         """
         scale = 200.0  # pixels to meters conversion
-        
+
         # Get current robot position
         current_pos = self.robot.position_world[0:-1] if hasattr(self.robot, 'position_world') else np.array([0.0, 0.0])
-        
+
         if strategy == "random":
-            # Generate random point within tank bounds
-            # Convert pixel bounds to meters
+            # Generate random point within tank bounds, enforcing min/max distance from start
             x_min = (-self.width / 2 + self.tank_margin) / scale
             x_max = (self.width / 2 - self.tank_margin) / scale
             y_min = (-self.height / 2 + self.tank_margin) / scale
             y_max = (self.height / 2 - self.tank_margin) / scale
-            
-            target = np.array([
-                np.random.uniform(x_min, x_max),
-                np.random.uniform(y_min, y_max)
-            ])
+
+            target = None
+            for _ in range(200):
+                candidate = np.array([
+                    np.random.uniform(x_min, x_max),
+                    np.random.uniform(y_min, y_max)
+                ])
+                d = np.linalg.norm(candidate)
+                if min_distance <= d <= max_distance:
+                    target = candidate
+                    break
+            if target is None:
+                # Fallback: place at min_distance on a random angle
+                angle = np.random.uniform(0, 2 * np.pi)
+                target = min_distance * np.array([np.cos(angle), np.sin(angle)])
             
         elif strategy == "relative":
             # Generate point relative to current position
@@ -544,7 +556,7 @@ class SalpRobotEnv(gym.Env):
         return target.astype(np.float32)
     
     def _generate_obstacles(self):
-        """Randomly place circular obstacles, keeping them away from start (0,0) and target."""
+        """Place circular obstacles biased toward the start→target path, with clearance from endpoints."""
         scale = 200.0
         x_min = (-self.width / 2 + self.tank_margin) / scale
         x_max = (self.width / 2 - self.tank_margin) / scale
@@ -552,13 +564,24 @@ class SalpRobotEnv(gym.Env):
         y_max = (self.height / 2 - self.tank_margin) / scale
         min_clear = 0.5  # meters clearance from start and target
 
+        path_len = np.linalg.norm(self.target_point)
+        if path_len > 1e-6:
+            direction = self.target_point / path_len
+            perp = np.array([-direction[1], direction[0]], dtype=np.float32)
+        else:
+            direction = np.array([1.0, 0.0], dtype=np.float32)
+            perp = np.array([0.0, 1.0], dtype=np.float32)
+
         self.obstacles = []
         for _ in range(self.num_obstacles):
             for _attempt in range(200):
-                pos = np.array([
-                    np.random.uniform(x_min, x_max),
-                    np.random.uniform(y_min, y_max),
-                ], dtype=np.float32)
+                # Sample along the path with a random lateral offset
+                t = np.random.uniform(0.25, 0.75)
+                lateral = np.random.uniform(-0.4, 0.4)
+                pos = (t * self.target_point + lateral * perp).astype(np.float32)
+                # Clamp to tank bounds
+                pos[0] = np.clip(pos[0], x_min, x_max)
+                pos[1] = np.clip(pos[1], y_min, y_max)
                 dist_start = np.linalg.norm(pos)
                 dist_target = np.linalg.norm(pos - self.target_point)
                 too_close_other = any(
