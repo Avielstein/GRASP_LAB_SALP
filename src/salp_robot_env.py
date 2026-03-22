@@ -574,12 +574,12 @@ class SalpRobotEnv(gym.Env):
 
         self.obstacles = []
         for _ in range(self.num_obstacles):
+            placed = False
+            # First try to place on the path
             for _attempt in range(200):
-                # Sample along the path with a random lateral offset
                 t = np.random.uniform(0.25, 0.75)
                 lateral = np.random.uniform(-0.4, 0.4)
                 pos = (t * self.target_point + lateral * perp).astype(np.float32)
-                # Clamp to tank bounds
                 pos[0] = np.clip(pos[0], x_min, x_max)
                 pos[1] = np.clip(pos[1], y_min, y_max)
                 dist_start = np.linalg.norm(pos)
@@ -590,7 +590,24 @@ class SalpRobotEnv(gym.Env):
                 )
                 if dist_start > min_clear and dist_target > min_clear and not too_close_other:
                     self.obstacles.append(pos)
+                    placed = True
                     break
+            # Fallback: random placement anywhere in the tank
+            if not placed:
+                for _attempt in range(200):
+                    pos = np.array([
+                        np.random.uniform(x_min, x_max),
+                        np.random.uniform(y_min, y_max),
+                    ], dtype=np.float32)
+                    dist_start = np.linalg.norm(pos)
+                    dist_target = np.linalg.norm(pos - self.target_point)
+                    too_close_other = any(
+                        np.linalg.norm(pos - o) < 2 * self.obstacle_radius + 0.1
+                        for o in self.obstacles
+                    )
+                    if dist_start > min_clear and dist_target > min_clear and not too_close_other:
+                        self.obstacles.append(pos)
+                        break
 
     def _check_obstacle_collision(self) -> bool:
         """Return True if the robot currently overlaps any obstacle."""
